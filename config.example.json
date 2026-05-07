@@ -1,0 +1,55 @@
+{
+  "token": "Token here",
+  "prefix": "*",
+  "owner_id": 123456789012345678,
+  "application_id": 123456789012345678,
+  "guild_id": 123456789012345678,
+  "guilds": {
+    "123456789012345678": {
+      "name": "Hall of the Slain",
+      "guild_roles": {
+        "Gatekeeper": 123456789012345678,
+        "Jarl": 123456789012345679,
+        "Battle Herald": 123456789012345680,
+        "Chronicler of the Hall": 123456789012345681,
+        "Keeper of the Trials": 123456789012345682,
+        "Arena Champion": 123456789012345683
+      },
+      "trial_role_id": 123456789012345684,
+      "trial_channel": 123456789012345700,
+      "tournament_channel": 123456789012345701,
+      "event_channel": 123456789012345702,
+      "log_channel": 123456789012345703,
+      "appeals_channel": 123456789012345704,
+      "trial_reviewers": [
+        123456789012345679,
+        123456789012345680
+      ],
+      "appeal_reviewers": [
+        123456789012345679,
+        123456789012345680
+      ],
+      "tournament_admins": [
+        123456789012345682,
+        123456789012345683
+      ],
+      "event_admins": [
+        123456789012345679,
+        123456789012345680
+      ],
+      "tournament_winner_role": 123456789012345685,
+      "tournament_finalist_role": 123456789012345686,
+      "trial_expiration_days": 30,
+      "features": {
+        "trials": true,
+        "tournaments": true,
+        "events": true,
+        "appeals": true
+      },
+      "hall_info": {
+        "rules": "1. Respect all members\n2. No cheating\n3. Support your division\n4. Attend mandatory meetings",
+        "lore": "The Hall of the Slain stands as a beacon of warrior culture. Those who join us embrace the old ways, the code of honor, and the pursuit of glory through combat and camaraderie."
+      }
+    }
+  }
+}
