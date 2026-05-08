@@ -1,8 +1,11 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 import json
+import os
 
-with open("./config.json") as f:
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.json")
+with open(CONFIG_PATH) as f:
     config = json.load(f)
 
 PREFIX = config["prefix"]
@@ -22,47 +25,65 @@ class Help(commands.Cog):
     def home_embed(self, ctx: commands.Context, prefix: str = None) -> discord.Embed:
         """Main help page."""
         guild = ctx.guild
-        owner = guild.owner.mention if guild.owner else "Unknown"
-        member_count = guild.member_count
+        owner = guild.owner.mention if guild and guild.owner else "Unknown"
+        member_count = guild.member_count if guild else "N/A"
         if prefix is None:
             prefix = self.get_prefix(ctx)
 
         embed = self._base_embed("🏠 Help Center")
-        embed.set_author(name=guild.name, icon_url=guild.icon.url if guild.icon else None)
+        if guild:
+            embed.set_author(name=guild.name, icon_url=guild.icon.url if guild.icon else None)
 
         embed.description = (
             f"**Server Owner : ** {owner}\n"
             f"**Total Members : ** {member_count}\n"
-            f"**Prefix :** {prefix}"
+            f"**Prefix :** {prefix}\n\n"
+            "Use the dropdown menu below to browse command groups and see every command with its description."
         )
 
-        cog_names = [name for name, cog in self.bot.cogs.items() if cog.get_commands()]
-        if cog_names:
-            category_list = "\n".join(f"🔹 **{name}**" for name in cog_names)
+        categories = []
+        for name, cog in self.bot.cogs.items():
+            total = len([cmd for cmd in cog.get_commands() if not cmd.hidden]) + len([cmd for cmd in cog.walk_app_commands() if not getattr(cmd, 'hidden', False) and not isinstance(cmd, app_commands.Group)])
+            if total > 0:
+                categories.append(f"🔹 **{name}** — {total} commands")
 
+        if categories:
+            category_list = "\n".join(categories)
             if len(category_list) <= 1024:
-                embed.add_field(name="📁 Categories", value=category_list, inline=False)
+                embed.add_field(name="📁 Command Groups", value=category_list, inline=False)
             else:
                 parts = []
                 current = ""
-                for name in cog_names:
-                    line = f"🔹 **{name}**\n"
-                    if len(current) + len(line) > 1024:
+                for line in categories:
+                    if len(current) + len(line) + 1 > 1024:
                         parts.append(current.strip())
                         current = line
                     else:
+                        if current:
+                            current += "\n"
                         current += line
                 if current:
                     parts.append(current.strip())
-
                 for i, part in enumerate(parts):
-                    field_name = "📁 Categories" if i == 0 else "📁 Categories (cont.)"
+                    field_name = "📁 Command Groups" if i == 0 else "📁 Command Groups (cont.)"
                     embed.add_field(name=field_name, value=part, inline=False)
         else:
-            embed.add_field(name="📁 Categories", value="No commands found.", inline=False)
+            embed.add_field(name="📁 Command Groups", value="No commands found.", inline=False)
 
         embed.set_footer(text="Use the dropdown to navigate")
         return embed
+
+    def _format_command_entry(self, cmd, prefix: str) -> str:
+        if isinstance(cmd, app_commands.Command):
+            if isinstance(cmd, app_commands.Group):
+                return None
+            syntax = f"**`/{cmd.qualified_name}`**"
+            description = cmd.description or "No description provided."
+            return f"{syntax}\n{description}"
+
+        syntax = f"**`{prefix}{cmd.qualified_name} {cmd.signature}`**".strip()
+        description = cmd.help or getattr(cmd, 'description', None) or "No description provided."
+        return f"{syntax}\n{description}"
 
     def cog_embed(self, cog_name: str, prefix: str = PREFIX) -> discord.Embed:
         cog = self.bot.get_cog(cog_name)
@@ -76,27 +97,31 @@ class Help(commands.Cog):
         for cmd in cog.get_commands():
             if cmd.hidden:
                 continue
-            syntax = f"**`{prefix}{cmd.qualified_name} {cmd.signature}`**"
-            example = cmd.extras.get('example', f"`{prefix}{cmd.qualified_name}`")
-            command_lines.append(f"{syntax}\n↳ Example: {example}")
+            command_lines.append(self._format_command_entry(cmd, prefix))
 
+        for app_cmd in cog.walk_app_commands():
+            if getattr(app_cmd, 'hidden', False) or isinstance(app_cmd, app_commands.Group):
+                continue
+            command_lines.append(self._format_command_entry(app_cmd, prefix))
+
+        command_lines = [line for line in command_lines if line]
         if not command_lines:
             embed.description = "No public commands in this category."
             return embed
 
-        full = "\n".join(command_lines)
+        full = "\n\n".join(command_lines)
         if len(full) <= 1024:
             embed.add_field(name="Commands", value=full, inline=False)
         else:
             parts = []
             current = ""
             for line in command_lines:
-                if len(current) + len(line) + 1 > 1024:
+                if len(current) + len(line) + 2 > 1024:
                     parts.append(current.strip())
                     current = line
                 else:
                     if current:
-                        current += "\n"
+                        current += "\n\n"
                     current += line
             if current:
                 parts.append(current.strip())
@@ -150,15 +175,20 @@ class Help(commands.Cog):
                 embed.add_field(name="Example", value=example, inline=False)
                 await ctx.send(embed=embed)
                 return
-            else:
-                await ctx.send(f" <:wrong:1501538221530808464> Command not found. Use `{prefix}help` to browse all commands.")
-                return
+            await ctx.send(f"<:wrong:1501538221530808464> Command not found. Use `{prefix}help` to browse all commands.")
+            return
 
-        # General help
-        prefix = getattr(ctx, "prefix", PREFIX)
         embed = self.home_embed(ctx, prefix=prefix)
         view = self.HelpView(self.bot, self, prefix)
         await ctx.send(embed=embed, view=view)
+
+    @app_commands.command(name="help", description="Browse all Runekeeper commands")
+    async def help_slash(self, interaction: discord.Interaction):
+        """Browse all commands via slash command."""
+        prefix = PREFIX
+        embed = self.home_embed(interaction, prefix=prefix)
+        view = self.HelpView(self.bot, self, prefix)
+        await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot):

@@ -2,6 +2,9 @@ import json
 import os
 from typing import Optional, Dict, Any
 
+# Global config instance
+config: Optional[Config] = None
+
 class Config:
     """Runekeeper configuration handler."""
     

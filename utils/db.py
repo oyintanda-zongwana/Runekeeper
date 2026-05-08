@@ -3,6 +3,7 @@ import os
 import sqlite3
 import threading
 import time
+import uuid
 
 DB_PATH = os.path.join("data", "botdata.db")
 _lock = threading.Lock()
@@ -46,13 +47,15 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS trial_candidates (
                 guild_id TEXT NOT NULL,
+                trial_id TEXT NOT NULL,
                 user_id TEXT NOT NULL,
+                application_text TEXT NOT NULL,
                 status TEXT NOT NULL,
                 application_date INTEGER NOT NULL,
                 approved_by TEXT,
                 decision_date INTEGER,
                 notes TEXT,
-                PRIMARY KEY(guild_id, user_id)
+                PRIMARY KEY(guild_id, trial_id)
             )
             """
         )
@@ -303,47 +306,72 @@ def remove_jail(guild_id, user_id):
 
 
 # Trial Candidates
-def add_trial_candidate(guild_id, user_id, timestamp):
+def add_trial(guild_id, user_id, application_text):
+    import uuid
+    trial_id = str(uuid.uuid4())
     _execute(
-        "INSERT OR REPLACE INTO trial_candidates (guild_id, user_id, status, application_date) VALUES (?, ?, ?, ?)",
-        (str(guild_id), str(user_id), "pending", int(timestamp)),
+        "INSERT INTO trial_candidates (guild_id, trial_id, user_id, application_text, status, application_date) VALUES (?, ?, ?, ?, ?, ?)",
+        (str(guild_id), trial_id, str(user_id), application_text, "pending", int(time.time())),
     )
+    return trial_id
 
 
-def approve_trial(guild_id, user_id, approved_by, notes=""):
-    _execute(
-        "UPDATE trial_candidates SET status = ?, approved_by = ?, decision_date = ?, notes = ? WHERE guild_id = ? AND user_id = ?",
-        ("approved", str(approved_by), int(time.time()), notes, str(guild_id), str(user_id)),
-    )
-
-
-def deny_trial(guild_id, user_id, denied_by, notes=""):
-    _execute(
-        "UPDATE trial_candidates SET status = ?, approved_by = ?, decision_date = ?, notes = ? WHERE guild_id = ? AND user_id = ?",
-        ("denied", str(denied_by), int(time.time()), notes, str(guild_id), str(user_id)),
-    )
-
-
-def get_trial_candidate(guild_id, user_id):
+def get_trial(guild_id, trial_id):
     return _fetchone(
-        "SELECT * FROM trial_candidates WHERE guild_id = ? AND user_id = ?",
+        "SELECT * FROM trial_candidates WHERE guild_id = ? AND trial_id = ?",
+        (str(guild_id), trial_id),
+    )
+
+
+def approve_trial(guild_id, trial_id, approved_by):
+    _execute(
+        "UPDATE trial_candidates SET status = ?, approved_by = ?, decision_date = ? WHERE guild_id = ? AND trial_id = ?",
+        ("approved", str(approved_by), int(time.time()), str(guild_id), trial_id),
+    )
+
+
+def deny_trial(guild_id, trial_id, denied_by):
+    _execute(
+        "UPDATE trial_candidates SET status = ?, approved_by = ?, decision_date = ? WHERE guild_id = ? AND trial_id = ?",
+        ("denied", str(denied_by), int(time.time()), str(guild_id), trial_id),
+    )
+
+
+def get_pending_trials(guild_id, user_id=None):
+    if user_id:
+        return _fetchall(
+            "SELECT * FROM trial_candidates WHERE guild_id = ? AND user_id = ? AND status = ? ORDER BY application_date ASC",
+            (str(guild_id), str(user_id), "pending"),
+        )
+    else:
+        return _fetchall(
+            "SELECT * FROM trial_candidates WHERE guild_id = ? AND status = ? ORDER BY application_date ASC",
+            (str(guild_id), "pending"),
+        )
+
+
+def get_user_trials(guild_id, user_id):
+    return _fetchall(
+        "SELECT * FROM trial_candidates WHERE guild_id = ? AND user_id = ? ORDER BY application_date DESC",
         (str(guild_id), str(user_id)),
     )
 
 
-def get_pending_trials(guild_id):
+def get_all_trials(guild_id):
     return _fetchall(
-        "SELECT * FROM trial_candidates WHERE guild_id = ? AND status = ? ORDER BY application_date ASC",
-        (str(guild_id), "pending"),
+        "SELECT * FROM trial_candidates WHERE guild_id = ? ORDER BY application_date DESC",
+        (str(guild_id),),
     )
 
 
 # Tournaments
-def create_tournament(guild_id, tournament_id, name, format_type, created_by, timestamp):
+def create_tournament(guild_id, name, format_type, created_by):
+    tournament_id = str(uuid.uuid4())
     _execute(
         "INSERT INTO tournaments (guild_id, tournament_id, name, format, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (str(guild_id), tournament_id, name, format_type, "created", str(created_by), int(timestamp)),
+        (str(guild_id), tournament_id, name, format_type, "registration", str(created_by), int(time.time())),
     )
+    return tournament_id
 
 
 def start_tournament(guild_id, tournament_id):
@@ -379,19 +407,36 @@ def get_guild_tournaments(guild_id, status=None):
     )
 
 
-# Tournament Teams
-def register_tournament_team(guild_id, tournament_id, team_id, team_name, members_json):
-    _execute(
-        "INSERT INTO tournament_teams (guild_id, tournament_id, team_id, team_name, members, joined_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (str(guild_id), tournament_id, team_id, team_name, members_json, int(time.time())),
+def get_tournament_team(guild_id, tournament_id, team_id):
+    return _fetchone(
+        "SELECT * FROM tournament_teams WHERE guild_id = ? AND tournament_id = ? AND team_id = ?",
+        (str(guild_id), tournament_id, team_id),
     )
 
 
 def get_tournament_teams(guild_id, tournament_id):
     return _fetchall(
-        "SELECT * FROM tournament_teams WHERE guild_id = ? AND tournament_id = ?",
+        "SELECT * FROM tournament_teams WHERE guild_id = ? AND tournament_id = ? ORDER BY joined_at ASC",
         (str(guild_id), tournament_id),
     )
+
+
+def get_tournament_team_matches(guild_id, tournament_id, team_id):
+    return _fetchall(
+        "SELECT * FROM tournament_matches WHERE guild_id = ? AND tournament_id = ? AND (team1_id = ? OR team2_id = ?) ORDER BY round ASC",
+        (str(guild_id), tournament_id, team_id, team_id),
+    )
+
+
+# Tournament Teams
+def register_tournament_team(guild_id, tournament_id, team_name, members):
+    team_id = str(uuid.uuid4())
+    members_json = json.dumps(members)
+    _execute(
+        "INSERT INTO tournament_teams (guild_id, tournament_id, team_id, team_name, members, joined_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (str(guild_id), tournament_id, team_id, team_name, members_json, int(time.time())),
+    )
+    return team_id
 
 
 def get_team_in_tournament(guild_id, tournament_id, team_id):
@@ -402,11 +447,13 @@ def get_team_in_tournament(guild_id, tournament_id, team_id):
 
 
 # Tournament Matches
-def create_match(guild_id, tournament_id, match_id, team1_id, team2_id, round_num):
+def create_match(guild_id, tournament_id, team1_id, team2_id, round_num):
+    match_id = str(uuid.uuid4())
     _execute(
         "INSERT INTO tournament_matches (guild_id, tournament_id, match_id, team1_id, team2_id, round, completed) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (str(guild_id), tournament_id, match_id, team1_id, team2_id, round_num, 0),
     )
+    return match_id
 
 
 def complete_match(guild_id, tournament_id, match_id, winner_id):
@@ -414,6 +461,12 @@ def complete_match(guild_id, tournament_id, match_id, winner_id):
         "UPDATE tournament_matches SET winner_id = ?, completed = ? WHERE guild_id = ? AND tournament_id = ? AND match_id = ?",
         (winner_id, 1, str(guild_id), tournament_id, match_id),
     )
+
+
+def record_tournament_match(guild_id, tournament_id, winning_team_id, losing_team_id, round_num):
+    match_id = create_match(guild_id, tournament_id, winning_team_id, losing_team_id, round_num)
+    complete_match(guild_id, tournament_id, match_id, winning_team_id)
+    return match_id
 
 
 def get_tournament_matches(guild_id, tournament_id):
@@ -424,11 +477,13 @@ def get_tournament_matches(guild_id, tournament_id):
 
 
 # Events
-def create_event(guild_id, event_id, name, scheduled_for, created_by, description=""):
+def create_event(guild_id, name, scheduled_for, created_by, description=""):
+    event_id = str(uuid.uuid4())
     _execute(
         "INSERT INTO events (guild_id, event_id, name, description, scheduled_for, created_by, created_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (str(guild_id), event_id, name, description, int(scheduled_for), str(created_by), int(time.time()), "scheduled"),
     )
+    return event_id
 
 
 def close_event(guild_id, event_id):
@@ -468,21 +523,27 @@ def add_event_rsvp(guild_id, event_id, user_id, status):
 def get_event_rsvps(guild_id, event_id, status=None):
     if status:
         return _fetchall(
-            "SELECT * FROM event_rsvps WHERE guild_id = ? AND event_id = ? AND status = ?",
+            "SELECT * FROM event_rsvps WHERE guild_id = ? AND event_id = ? AND status = ? ORDER BY timestamp ASC",
             (str(guild_id), event_id, status),
         )
     return _fetchall(
-        "SELECT * FROM event_rsvps WHERE guild_id = ? AND event_id = ?",
+        "SELECT * FROM event_rsvps WHERE guild_id = ? AND event_id = ? ORDER BY timestamp ASC",
         (str(guild_id), event_id),
     )
 
 
+def rsvp_event(guild_id, event_id, user_id, status):
+    add_event_rsvp(guild_id, event_id, user_id, status)
+
+
 # Appeals
-def submit_appeal(guild_id, appeal_id, user_id, reason):
+def submit_appeal(guild_id, user_id, reason):
+    appeal_id = str(uuid.uuid4())
     _execute(
         "INSERT INTO appeals (guild_id, appeal_id, user_id, reason, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (str(guild_id), appeal_id, str(user_id), reason, "pending", int(time.time())),
     )
+    return appeal_id
 
 
 def approve_appeal(guild_id, appeal_id, reviewed_by, notes=""):
@@ -513,6 +574,20 @@ def get_pending_appeals(guild_id):
     )
 
 
+def get_user_appeals(guild_id, user_id):
+    return _fetchall(
+        "SELECT * FROM appeals WHERE guild_id = ? AND user_id = ? ORDER BY created_at DESC",
+        (str(guild_id), str(user_id)),
+    )
+
+
+def get_all_appeals(guild_id):
+    return _fetchall(
+        "SELECT * FROM appeals WHERE guild_id = ? ORDER BY created_at DESC",
+        (str(guild_id),),
+    )
+
+
 # Internal Logs
 def log_action(guild_id, action, actor_id, target_id=None, details=""):
     import uuid
@@ -529,3 +604,7 @@ def get_guild_logs(guild_id, limit=100):
         "SELECT * FROM internal_logs WHERE guild_id = ? ORDER BY timestamp DESC LIMIT ?",
         (str(guild_id), limit),
     )
+
+
+def get_logs(guild_id, limit=100):
+    return get_guild_logs(guild_id, limit)

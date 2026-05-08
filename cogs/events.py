@@ -56,9 +56,9 @@ class Events(commands.Cog):
         event_id = db.create_event(
             guild_id=interaction.guild.id,
             name=name,
-            description=description,
             scheduled_for=scheduled_for,
-            created_by=interaction.user.id
+            created_by=interaction.user.id,
+            description=description
         )
         
         embed = create_event_embed(
@@ -124,7 +124,7 @@ class Events(commands.Cog):
     @app_commands.command(name="eventlist", description="List all upcoming events")
     async def list_events(self, interaction: discord.Interaction):
         """Display all upcoming events."""
-        events = db.get_active_events(interaction.guild.id)
+        events = db.get_guild_events(interaction.guild.id, status="scheduled")
         
         if not events:
             embed = create_error_embed("No Events", "No upcoming events scheduled.")
@@ -132,7 +132,7 @@ class Events(commands.Cog):
         
         events_text = ""
         for event in events[:10]:
-            event_id, name, desc, scheduled, creator_id, created_at, status = event
+            guild_id, event_id, name, desc, scheduled, creator_id, created_at, status = event
             time_str = f"<t:{int(scheduled)}:R>"
             events_text += f"{Emojis.ANNOUNCE} **{name}** - {time_str}\n"
         
@@ -185,10 +185,10 @@ class Events(commands.Cog):
         
         # Get all guilds
         for guild_id in [g.id for g in self.bot.guilds]:
-            events = db.get_active_events(guild_id)
+            events = db.get_guild_events(guild_id, status="scheduled")
             
             for event in events:
-                event_id, name, desc, scheduled, creator_id, created_at, status = event
+                guild_id, event_id, name, desc, scheduled, creator_id, created_at, status = event
                 
                 # 1 hour before
                 if scheduled - 3600 <= current_time <= scheduled - 3000:

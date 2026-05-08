@@ -1,6 +1,7 @@
 import discord
 import os
 from discord.ext import commands
+from discord import app_commands
 from difflib import get_close_matches
 from utils import db
 from config import init_config, get_config
@@ -34,6 +35,7 @@ class RunekeeperBot(commands.Bot):
 
         # Load all cogs
         cog_files = [
+            "help",
             "hall_info",
             "trials",
             "tournaments",
@@ -54,6 +56,7 @@ class RunekeeperBot(commands.Bot):
         try:
             if GUILD_ID:
                 guild = discord.Object(id=GUILD_ID)
+                self.tree.clear_commands(guild=guild)
                 self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
                 print(f"✅ Synced commands to test guild {GUILD_ID}")
@@ -86,6 +89,18 @@ async def on_ready():
         )
     )
     print(f"✅ {bot.user} is ready")
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    if isinstance(error, app_commands.CommandNotFound):
+        print(f"⚠️ Ignoring stale app command: {interaction.data.get('name') if interaction.data else 'unknown'}")
+        return
+
+    description = str(error)
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=error_embed(interaction, "⚠️ Error", description), ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=error_embed(interaction, "⚠️ Error", description), ephemeral=True)
 
 @bot.event
 async def on_command_error(ctx, error):
