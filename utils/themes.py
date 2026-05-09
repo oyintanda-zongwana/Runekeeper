@@ -25,55 +25,83 @@ class Lore:
     
     @staticmethod
     def trial_submitted() -> str:
-        return "Your petition has been received by the Hall. The elders will judge your worthiness."
+        return "Your petition has been received by the Hall. The elders will judge your worthiness within these ancient walls."
     
     @staticmethod
     def trial_approved() -> str:
-        return "The Hall has recognized your warrior spirit. Welcome to our ranks."
+        return "The Hall has recognized your warrior spirit. Welcome to our ranks, valiant one."
     
     @staticmethod
     def trial_denied() -> str:
-        return "The Hall has deemed you unworthy at this time. Prepare yourself and return when ready."
+        return "The Hall has deemed you unworthy at this time. Sharpen your skills and return when you are ready to prove yourself."
     
     @staticmethod
     def tournament_created(name: str) -> str:
-        return f"A new Trial of Combat has been declared: **{name}**\nLet the strongest rise to glory."
+        return f"⚔️ A new Trial of Combat has been declared: **{name}**\n\nLet the strongest rise to glory. Warriors, prepare your blades."
     
     @staticmethod
     def tournament_started(name: str) -> str:
-        return f"The Trial of Combat begins: **{name}**\nMay the worthy prevail."
+        return f"🔥 The Trial of Combat begins: **{name}**\n\nMay the worthy prevail. Let blood and honor guide your paths."
     
     @staticmethod
     def tournament_victory(winner: str) -> str:
-        return f"Victory belongs to **{winner}**! Their name shall echo through the halls of glory."
+        return f"🏆 Victory belongs to **{winner}**!\n\nTheir name shall echo through the halls of glory forevermore. They have proven their strength."
+    
+    @staticmethod
+    def tournament_registration_closed() -> str:
+        return "The gates have closed. No more warriors may enter this Trial of Combat."
     
     @staticmethod
     def event_created(name: str) -> str:
-        return f"A gathering has been announced: **{name}**\nGather, warriors, and prepare for what comes."
+        return f"📢 A gathering has been announced: **{name}**\n\nGather, warriors, and prepare for what comes. Your presence is required."
     
     @staticmethod
     def event_reminder(name: str, time_remaining: str) -> str:
-        return f"Reminder: **{name}** begins in {time_remaining}.\nDo not be late."
+        return f"⏰ Reminder: **{name}** begins in {time_remaining}.\n\nDo not be late. The Hall waits for none."
+    
+    @staticmethod
+    def event_started(name: str) -> str:
+        return f"🎭 **{name}** has begun.\n\nAll warriors who pledged to attend, take your place in the Hall."
     
     @staticmethod
     def appeal_submitted() -> str:
-        return "Your appeal has been heard by the Council. They shall deliberate on your petition."
+        return "⚖️ Your appeal has been heard by the Council of Elders. They shall deliberate on your petition in due time."
     
     @staticmethod
     def appeal_approved() -> str:
-        return "The Council has shown mercy. Your petition has been approved."
+        return "✅ The Council has shown mercy. Your petition has been **approved**. Justice prevails."
     
     @staticmethod
     def appeal_denied() -> str:
-        return "The Council's judgment stands. Your appeal has been denied."
+        return "❌ The Council's judgment stands. Your appeal has been **denied**. Accept their wisdom."
     
     @staticmethod
     def role_assigned(role_name: str) -> str:
-        return f"You have been honored with the position: **{role_name}**"
+        return f"🏛️ You have been honored with the position: **{role_name}**\n\nMay you serve the Hall with distinction."
     
     @staticmethod
     def role_removed(role_name: str) -> str:
-        return f"Your station as **{role_name}** has been revoked."
+        return f"⚠️ Your station as **{role_name}** has been revoked. You remain a warrior of the Hall, though diminished."
+    
+    @staticmethod
+    def join_tournament() -> str:
+        return "⚔️ You have joined the Trial of Combat. Prepare yourself for battle."
+    
+    @staticmethod
+    def leave_tournament() -> str:
+        return "You have withdrawn from the Trial of Combat. The other warriors shall continue without you."
+    
+    @staticmethod
+    def error_generic() -> str:
+        return "The Hall's magic has faltered. An error has occurred. Try again."
+    
+    @staticmethod
+    def permission_denied() -> str:
+        return "🔒 You lack the authority to perform this action. Only the worthy may proceed."
+    
+    @staticmethod
+    def not_configured() -> str:
+        return "⚙️ This feature has not been configured by the Hall's administrators. Please contact them."
 
 
 def create_embed(
@@ -260,3 +288,63 @@ class Emojis:
     BLOOD = "🩸"
     RUNE = "✨"
     HOURGLASS = "⏳"
+    WARN = "⚠️"
+    GOLD = "⭐"
+    HAMMER = "🔨"
+    WOLF = "🐺"
+    DRAGON = "🐉"
+    BOOK = "📖"
+    MEDAL = "🥇"
+    TIMER = "⏰"
+    USERS = "👥"
+    GEAR = "⚙️"
+
+
+class HallEmbed:
+    """Unified embed builder for Hall of the Slain."""
+    
+    @staticmethod
+    def victory(title: str, description: str = "", fields: Optional[list] = None) -> discord.Embed:
+        """Create victory/success announcement embed."""
+        embed = create_embed(
+            title=f"{Emojis.VICTORY} {title}",
+            description=description,
+            color=Colors.TRIUMPH,
+            fields=fields,
+            footer_text="Victory is ours!"
+        )
+        return embed
+    
+    @staticmethod
+    def announcement(title: str, description: str = "", fields: Optional[list] = None) -> discord.Embed:
+        """Create announcement embed."""
+        embed = create_embed(
+            title=f"{Emojis.ANNOUNCE} {title}",
+            description=description,
+            color=Colors.GOLD,
+            fields=fields,
+            footer_text="Hall Announcement"
+        )
+        return embed
+    
+    @staticmethod
+    def warning(title: str, description: str = "") -> discord.Embed:
+        """Create warning embed."""
+        return create_error_embed(title, description)
+    
+    @staticmethod
+    def action(title: str, description: str = "", fields: Optional[list] = None) -> discord.Embed:
+        """Create action result embed."""
+        embed = create_embed(
+            title=f"{Emojis.SWORD} {title}",
+            description=description,
+            color=Colors.GOLD,
+            fields=fields,
+            footer_text="Action executed"
+        )
+        return embed
+    
+    @staticmethod
+    def information(title: str, description: str = "", fields: Optional[list] = None) -> discord.Embed:
+        """Create informational embed."""
+        return create_info_embed(title, description, fields=fields)

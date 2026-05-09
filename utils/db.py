@@ -164,6 +164,39 @@ def init_db():
             )
             """
         )
+        # Moderation
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS warns (
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                moderator_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                timestamp INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS mutes (
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                end INTEGER NOT NULL,
+                PRIMARY KEY(guild_id, user_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jails (
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                roles TEXT NOT NULL,
+                channel_id TEXT,
+                PRIMARY KEY(guild_id, user_id)
+            )
+            """
+        )
         conn.commit()
 
 

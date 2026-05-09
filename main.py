@@ -35,6 +35,8 @@ class RunekeeperBot(commands.Bot):
 
         # Load all cogs
         cog_files = [
+            "config_manager",
+            "admin_tools",
             "help",
             "hall_info",
             "trials",

@@ -13,6 +13,7 @@ from utils.themes import (
     Colors, Lore, Emojis
 )
 from utils.decorators import require_appeal_reviewer
+from utils.interactions import InteractionHandler, PermissionHelper, cooldown_manager
 
 class AppealButtons(discord.ui.View):
     """Approval/Denial buttons for appeals."""

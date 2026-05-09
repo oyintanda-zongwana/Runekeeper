@@ -13,6 +13,7 @@ from utils.themes import (
     Colors, Lore, Emojis
 )
 from utils.decorators import require_trial_reviewer
+from utils.interactions import InteractionHandler, PermissionHelper, cooldown_manager
 
 class TrialButtons(discord.ui.View):
     """Approval/Denial buttons for trial candidates."""
@@ -30,48 +31,63 @@ class TrialButtons(discord.ui.View):
         settings = config.get_guild_settings(self.guild_id)
         
         if not settings:
-            return await interaction.response.send_message("Guild not configured.", ephemeral=True)
+            embed = create_error_embed("Guild Not Configured", Lore.not_configured())
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         # Check reviewer permissions
         reviewer_roles = config.get_trial_reviewers(self.guild_id)
-        has_perm = any(role.id in reviewer_roles for role in interaction.user.roles)
+        perm_issue = PermissionHelper.get_missing_permissions(interaction.user, reviewer_roles)
         
-        if not has_perm:
-            return await interaction.response.send_message(
-                "You don't have permission to approve trials.",
-                ephemeral=True
-            )
+        if perm_issue:
+            embed = create_error_embed("Permission Denied", perm_issue)
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
+        
+        # Check cooldown to prevent duplicate approvals
+        if cooldown_manager.is_on_cooldown(interaction.user.id, f"trial_approve_{self.trial_id}", 2):
+            embed = create_error_embed("Too Fast", "Please wait before approving this trial again.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         # Get trial and approve
         trial = db.get_trial(self.guild_id, self.trial_id)
-        if not trial or trial[2] != "pending":
-            return await interaction.response.send_message(
-                "This trial has already been decided.",
-                ephemeral=True
-            )
+        if not trial:
+            embed = create_error_embed("Trial Not Found", "This trial has been deleted.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
+        # Check if already decided (index 4 is status column)
+        if trial[4] != "pending":
+            embed = create_error_embed("Already Decided", f"This trial was already {trial[4]}.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
+        
+        # Approve
         db.approve_trial(self.guild_id, self.trial_id, interaction.user.id)
+        cooldown_manager.set_cooldown(interaction.user.id, f"trial_approve_{self.trial_id}")
         
         # Assign role
         trial_role_id = settings.get("trial_role_id")
         if trial_role_id:
-            guild = self.bot.get_guild(self.guild_id)
-            member = guild.get_member(self.user_id)
-            role = guild.get_role(trial_role_id)
-            if member and role:
-                await member.add_roles(role)
+            try:
+                guild = self.bot.get_guild(self.guild_id)
+                member = guild.get_member(self.user_id)
+                role = guild.get_role(int(trial_role_id))
+                if member and role:
+                    await member.add_roles(role)
+            except discord.Forbidden:
+                # Bot lacks permission to assign role, but approval still goes through
+                pass
+            except Exception as e:
+                print(f"Error assigning trial role: {e}")
         
         embed = create_success_embed(
             "Trial Approved",
             f"{Lore.trial_approved()}\n\nApproved by {interaction.user.mention}"
         )
-        await interaction.response.send_message(embed=embed)
+        await InteractionHandler.safe_respond(interaction, embed)
         
         # Notify candidate
         try:
             user = await self.bot.fetch_user(self.user_id)
             await user.send(embed=create_success_embed(
-                "Your Trial Has Been Approved",
+                f"{Emojis.CHECK} Your Trial Has Been Approved",
                 Lore.trial_approved()
             ))
         except:
@@ -83,39 +99,47 @@ class TrialButtons(discord.ui.View):
         settings = config.get_guild_settings(self.guild_id)
         
         if not settings:
-            return await interaction.response.send_message("Guild not configured.", ephemeral=True)
+            embed = create_error_embed("Guild Not Configured", Lore.not_configured())
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         # Check reviewer permissions
         reviewer_roles = config.get_trial_reviewers(self.guild_id)
-        has_perm = any(role.id in reviewer_roles for role in interaction.user.roles)
+        perm_issue = PermissionHelper.get_missing_permissions(interaction.user, reviewer_roles)
         
-        if not has_perm:
-            return await interaction.response.send_message(
-                "You don't have permission to deny trials.",
-                ephemeral=True
-            )
+        if perm_issue:
+            embed = create_error_embed("Permission Denied", perm_issue)
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
+        
+        # Check cooldown to prevent duplicate denials
+        if cooldown_manager.is_on_cooldown(interaction.user.id, f"trial_deny_{self.trial_id}", 2):
+            embed = create_error_embed("Too Fast", "Please wait before denying this trial again.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         # Get trial and deny
         trial = db.get_trial(self.guild_id, self.trial_id)
-        if not trial or trial[2] != "pending":
-            return await interaction.response.send_message(
-                "This trial has already been decided.",
-                ephemeral=True
-            )
+        if not trial:
+            embed = create_error_embed("Trial Not Found", "This trial has been deleted.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
+        
+        # Check if already decided
+        if trial[4] != "pending":
+            embed = create_error_embed("Already Decided", f"This trial was already {trial[4]}.")
+            return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         db.deny_trial(self.guild_id, self.trial_id, interaction.user.id)
+        cooldown_manager.set_cooldown(interaction.user.id, f"trial_deny_{self.trial_id}")
         
         embed = create_error_embed(
             "Trial Denied",
             f"{Lore.trial_denied()}\n\nDenied by {interaction.user.mention}"
         )
-        await interaction.response.send_message(embed=embed)
+        await InteractionHandler.safe_respond(interaction, embed)
         
         # Notify candidate
         try:
             user = await self.bot.fetch_user(self.user_id)
             await user.send(embed=create_error_embed(
-                "Your Trial Has Been Denied",
+                f"{Emojis.CROSS} Your Trial Has Been Denied",
                 Lore.trial_denied()
             ))
         except:
