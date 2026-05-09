@@ -19,7 +19,6 @@ class Events(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        self.event_reminder.start()
     
     def cog_unload(self):
         self.event_reminder.cancel()

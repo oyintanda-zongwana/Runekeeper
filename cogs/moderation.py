@@ -99,7 +99,6 @@ def parse_time(t):
 class Moderation(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.check_mutes.start()
         self.snipe_data = {}
         self.edit_snipe_data = {}
 

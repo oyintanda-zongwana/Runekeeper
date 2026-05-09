@@ -44,7 +44,10 @@ class RunekeeperBot(commands.Bot):
             "events",
             "appeals",
             "logging",
-            "announcements"
+            "announcements",
+            "moderation",
+            "roles",
+            "server"
         ]
         
         for cog_file in cog_files:
@@ -91,6 +94,15 @@ async def on_ready():
         )
     )
     print(f"✅ {bot.user} is ready")
+    
+    # Start background tasks
+    events_cog = bot.get_cog('Events')
+    if events_cog:
+        events_cog.event_reminder.start()
+    
+    moderation_cog = bot.get_cog('Moderation')
+    if moderation_cog:
+        moderation_cog.check_mutes.start()
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):

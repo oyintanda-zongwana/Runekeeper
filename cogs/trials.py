@@ -24,6 +24,7 @@ class TrialButtons(discord.ui.View):
         self.guild_id = guild_id
         self.user_id = user_id
         self.bot = bot
+        self.custom_id = f"trial_buttons_{trial_id}_{guild_id}"
     
     @discord.ui.button(label="Approve", style=discord.ButtonStyle.green, emoji=Emojis.CHECK)
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -195,7 +196,10 @@ class Trials(commands.Cog):
             channel = interaction.guild.get_channel(trial_channel_id)
             if channel:
                 view = TrialButtons(trial_id, interaction.guild.id, interaction.user.id, self.bot)
-                await channel.send(embed=embed, view=view)
+                message = await channel.send(embed=embed, view=view)
+                self.bot.add_view(view, message_id=message.id)
+                # Update trial with message_id
+                db._execute("UPDATE trial_candidates SET message_id = ? WHERE guild_id = ? AND trial_id = ?", (str(message.id), str(interaction.guild.id), trial_id))
         
         await interaction.response.send_message(
             embed=create_success_embed("Application Submitted", Lore.trial_submitted()),
@@ -275,3 +279,13 @@ class Trials(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Trials(bot))
+    
+    # Load persistent trial views
+    trials = db._fetchall("SELECT guild_id, trial_id, user_id, message_id FROM trial_candidates WHERE status = 'pending' AND message_id IS NOT NULL")
+    for trial in trials:
+        guild_id = int(trial[0])
+        trial_id = trial[1]
+        user_id = int(trial[2])
+        message_id = int(trial[3])
+        view = TrialButtons(trial_id, guild_id, user_id, bot)
+        bot.add_view(view, message_id=message_id)

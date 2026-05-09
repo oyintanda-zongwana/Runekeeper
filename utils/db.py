@@ -55,6 +55,7 @@ def init_db():
                 approved_by TEXT,
                 decision_date INTEGER,
                 notes TEXT,
+                message_id TEXT,
                 PRIMARY KEY(guild_id, trial_id)
             )
             """
@@ -339,12 +340,12 @@ def remove_jail(guild_id, user_id):
 
 
 # Trial Candidates
-def add_trial(guild_id, user_id, application_text):
+def add_trial(guild_id, user_id, application_text, message_id=None):
     import uuid
     trial_id = str(uuid.uuid4())
     _execute(
-        "INSERT INTO trial_candidates (guild_id, trial_id, user_id, application_text, status, application_date) VALUES (?, ?, ?, ?, ?, ?)",
-        (str(guild_id), trial_id, str(user_id), application_text, "pending", int(time.time())),
+        "INSERT INTO trial_candidates (guild_id, trial_id, user_id, application_text, status, application_date, message_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (str(guild_id), trial_id, str(user_id), application_text, "pending", int(time.time()), str(message_id) if message_id else None),
     )
     return trial_id
 

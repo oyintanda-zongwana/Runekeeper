@@ -238,12 +238,12 @@ class Server(commands.Cog):
         embed = make_embed(ctx, f"{EMOJI_SUCCESS} Members", f"Total: {total}\nHumans: {humans}\nBots: {bots}", 0x2ecc71)
         await self.send(ctx, embed)
 
-    @commands.command()
-    async def members(self, ctx):
+    @commands.command(aliases=["mc"])
+    async def membercount(self, ctx):
         await self.members_logic(ctx)
 
-    @app_commands.command(name="members", description="Show member counts")
-    async def slash_members(self, interaction: discord.Interaction):
+    @app_commands.command(name="membercount", description="Show member counts")
+    async def slash_membercount(self, interaction: discord.Interaction):
         await self.members_logic(interaction)
 
     async def boosts_logic(self, ctx):
