@@ -144,6 +144,49 @@ class Events(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
+    @app_commands.command(name="events", description="Browse upcoming events")
+    async def browse_events(self, interaction: discord.Interaction):
+        """Browse upcoming events (alias for eventlist)."""
+        await self.list_events(interaction)
+    
+    @app_commands.command(name="eventview", description="View event details")
+    @app_commands.describe(event_id="Event ID")
+    async def view_event(
+        self,
+        interaction: discord.Interaction,
+        event_id: str
+    ):
+        """View detailed event information."""
+        event = db.get_event(interaction.guild.id, event_id)
+        
+        if not event:
+            embed = create_error_embed("Event Not Found", "This event doesn't exist.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        guild_id, event_id, name, desc, scheduled, creator_id, created_at, status = event
+        rsvps = db.get_event_rsvps(interaction.guild.id, event_id)
+        
+        embed = create_event_embed(
+            name,
+            desc,
+            f"**Scheduled**: <t:{int(scheduled)}:F>\n**Status**: {status.upper()}\n**RSVPs**: {len(rsvps)}",
+            footer="Hall Event"
+        )
+        
+        if rsvps:
+            attending = [r for r in rsvps if r[3] == "attending"]
+            not_attending = [r for r in rsvps if r[3] == "not_attending"]
+            
+            if attending:
+                attending_text = ", ".join([f"<@{r[2]}>" for r in attending[:5]])
+                embed.add_field(name="Attending", value=attending_text, inline=False)
+            
+            if not_attending:
+                not_text = ", ".join([f"<@{r[2]}>" for r in not_attending[:5]])
+                embed.add_field(name="Not Attending", value=not_text, inline=False)
+
+        await interaction.response.send_message(embed=embed)
+    
     @app_commands.command(name="eventrsvplist", description="See who RSVPed to an event")
     @app_commands.describe(event_id="Event ID")
     async def rsvp_list(

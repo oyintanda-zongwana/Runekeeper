@@ -608,6 +608,13 @@ def get_pending_appeals(guild_id):
     )
 
 
+def get_user_pending_appeals(guild_id, user_id):
+    return _fetchall(
+        "SELECT * FROM appeals WHERE guild_id = ? AND user_id = ? AND status = ? ORDER BY created_at ASC",
+        (str(guild_id), str(user_id), "pending"),
+    )
+
+
 def get_user_appeals(guild_id, user_id):
     return _fetchall(
         "SELECT * FROM appeals WHERE guild_id = ? AND user_id = ? ORDER BY created_at DESC",

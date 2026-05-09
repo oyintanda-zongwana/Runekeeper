@@ -159,8 +159,8 @@ class Help(commands.Cog):
             self.cog = cog
             self.add_item(cog.HelpDropdown(bot, self, prefix))
 
-    @commands.command(name="help")
-    async def help_command(self, ctx, *, query: str = None):
+    @commands.command()
+    async def help(self, ctx, *, query: str = None):
         """Browse all commands or get details for a specific one."""
         prefix = getattr(ctx, "prefix", PREFIX)
         if query:

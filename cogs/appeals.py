@@ -128,7 +128,7 @@ class Appeals(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
         # Check if user already has pending appeal
-        pending = db.get_pending_appeals(interaction.guild.id, interaction.user.id)
+        pending = db.get_user_pending_appeals(interaction.guild.id, interaction.user.id)
         if pending:
             embed = create_error_embed(
                 "Already Pending",

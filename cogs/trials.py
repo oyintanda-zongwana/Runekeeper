@@ -26,7 +26,7 @@ class TrialButtons(discord.ui.View):
         self.bot = bot
         self.custom_id = f"trial_buttons_{trial_id}_{guild_id}"
     
-    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green, emoji=Emojis.CHECK)
+    @discord.ui.button(label="Approve", style=discord.ButtonStyle.green, emoji=Emojis.CHECK, custom_id="trial_approve")
     async def approve_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = get_config()
         settings = config.get_guild_settings(self.guild_id)
@@ -61,6 +61,7 @@ class TrialButtons(discord.ui.View):
         
         # Approve
         db.approve_trial(self.guild_id, self.trial_id, interaction.user.id)
+        db.log_action(self.guild_id, "trial_approved", interaction.user.id, self.user_id, f"Trial approved by {interaction.user.display_name}")
         cooldown_manager.set_cooldown(interaction.user.id, f"trial_approve_{self.trial_id}")
         
         # Assign role
@@ -94,7 +95,7 @@ class TrialButtons(discord.ui.View):
         except:
             pass
     
-    @discord.ui.button(label="Deny", style=discord.ButtonStyle.red, emoji=Emojis.CROSS)
+    @discord.ui.button(label="Deny", style=discord.ButtonStyle.red, emoji=Emojis.CROSS, custom_id="trial_deny")
     async def deny_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = get_config()
         settings = config.get_guild_settings(self.guild_id)
@@ -128,6 +129,7 @@ class TrialButtons(discord.ui.View):
             return await InteractionHandler.safe_respond(interaction, embed, ephemeral=True)
         
         db.deny_trial(self.guild_id, self.trial_id, interaction.user.id)
+        db.log_action(self.guild_id, "trial_denied", interaction.user.id, self.user_id, f"Trial denied by {interaction.user.display_name}")
         cooldown_manager.set_cooldown(interaction.user.id, f"trial_deny_{self.trial_id}")
         
         embed = create_error_embed(
@@ -219,14 +221,14 @@ class Trials(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
         latest = trials[0]
-        status_text = f"**Status**: {latest[2].upper()}"
+        status_text = f"**Status**: {latest[4].upper()}"
         
-        if latest[2] == "approved":
-            status_text += f"\n**Approved by**: <@{latest[4]}>"
-            status_text += f"\n**Date**: <t:{int(latest[5])}:f>"
-        elif latest[2] == "denied":
-            status_text += f"\n**Denied by**: <@{latest[4]}>"
-            status_text += f"\n**Date**: <t:{int(latest[5])}:f>"
+        if latest[4] == "approved":
+            status_text += f"\n**Approved by**: <@{latest[6]}>"
+            status_text += f"\n**Date**: <t:{int(latest[7])}:f>"
+        elif latest[4] == "denied":
+            status_text += f"\n**Denied by**: <@{latest[6]}>"
+            status_text += f"\n**Date**: <t:{int(latest[7])}:f>"
         
         embed = create_trial_embed(
             "Your Trial Status",
@@ -256,7 +258,7 @@ class Trials(commands.Cog):
         
         trials = db.get_all_trials(interaction.guild.id)
         if status != "all":
-            trials = [t for t in trials if t[2] == status]
+            trials = [t for t in trials if t[4] == status]
         
         if not trials:
             embed = create_error_embed(
@@ -266,7 +268,7 @@ class Trials(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
         trials_text = "\n".join([
-            f"{Emojis.SCROLL} **<@{t[1]}>** - {t[2].upper()} (Applied: <t:{int(t[3])}:R>)"
+            f"{Emojis.SCROLL} **<@{t[2]}>** - {t[4].upper()} (Applied: <t:{int(t[5])}:R>)"
             for t in trials[:10]  # Show first 10
         ])
         
@@ -274,6 +276,42 @@ class Trials(commands.Cog):
             f"Trials ({status.upper()})",
             trials_text,
             status=status if status != "all" else "pending"
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="trialqueue", description="View pending trial queue")
+    async def trial_queue(self, interaction: discord.Interaction):
+        """View pending trials queue (reviewer only)."""
+        config = get_config()
+        reviewer_roles = config.get_trial_reviewers(interaction.guild.id)
+        has_perm = any(role.id in reviewer_roles for role in interaction.user.roles)
+        
+        if not has_perm:
+            embed = create_error_embed(
+                "Permission Denied",
+                "You don't have permission to view the trial queue."
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        trials = db.get_pending_trials(interaction.guild.id)
+        
+        if not trials:
+            embed = create_error_embed(
+                "Empty Queue",
+                "No pending trials in the queue."
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        queue_text = ""
+        for i, trial in enumerate(trials[:10], 1):
+            user_id = trial[2]
+            application_date = trial[5]
+            queue_text += f"{i}. <@{user_id}> - Applied <t:{int(application_date)}:R>\n"
+        
+        embed = create_trial_embed(
+            "Trial Queue",
+            f"**Pending Trials**: {len(trials)}\n\n{queue_text}",
+            status="pending"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

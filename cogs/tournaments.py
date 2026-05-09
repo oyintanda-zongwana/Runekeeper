@@ -16,6 +16,16 @@ from utils.themes import (
 )
 from utils.decorators import require_tournament_admin
 
+async def tournament_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Autocomplete for tournament selection."""
+    tournaments = db.get_guild_tournaments(interaction.guild.id)
+    choices = []
+    for t in tournaments:
+        name = t[1]
+        if current.lower() in name.lower():
+            choices.append(app_commands.Choice(name=f"{name} ({t[4]})", value=name))
+    return choices[:25]  # Discord limit
+
 class Tournaments(commands.Cog):
     """Tournament management for Hall of the Slain."""
     
@@ -49,9 +59,11 @@ class Tournaments(commands.Cog):
         tournament_id = db.create_tournament(
             guild_id=interaction.guild.id,
             name=name,
-            format=format,
+            format_type=format,
             created_by=interaction.user.id
         )
+        
+        db.log_action(interaction.guild.id, "tournament_created", interaction.user.id, None, f"Tournament '{name}' ({format}) created")
         
         embed = create_tournament_embed(
             "Tournament Created",
@@ -67,14 +79,15 @@ class Tournaments(commands.Cog):
     
     @app_commands.command(name="tourneyjoin", description="Join a tournament with a team")
     @app_commands.describe(
-        tournament_id="Tournament ID",
+        tournament_name="Select tournament to join",
         team_name="Your team name",
         teammate="Your teammate for 2v2 tournaments"
     )
+    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
     async def join(
         self,
         interaction: discord.Interaction,
-        tournament_id: str,
+        tournament_name: str,
         team_name: str,
         teammate: discord.Member = None
     ):
@@ -86,10 +99,19 @@ class Tournaments(commands.Cog):
             embed = create_error_embed("Guild Not Configured", "This guild hasn't set up tournaments.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        tournament = db.get_tournament(interaction.guild.id, tournament_id)
+        # Find tournament by name
+        tournaments = db.get_guild_tournaments(interaction.guild.id, "registration")
+        tournament = None
+        for t in tournaments:
+            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
+                tournament = t
+                break
+        
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", "This tournament doesn't exist.")
+            embed = create_error_embed("Tournament Not Found", f"No registration-open tournament found with name '{tournament_name}'.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        tournament_id = tournament[0]
 
         if tournament[4] != "registration":
             embed = create_error_embed("Registration Closed", "This tournament is no longer accepting registrations.")
@@ -137,26 +159,35 @@ class Tournaments(commands.Cog):
         await interaction.response.send_message(embed=embed)
     
     @app_commands.command(name="tourneystart", description="Start a tournament")
-    @app_commands.describe(tournament_id="Tournament ID")
+    @app_commands.describe(tournament_name="Select tournament to start")
+    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
     async def start(
         self,
         interaction: discord.Interaction,
-        tournament_id: str
+        tournament_name: str
     ):
         """Start a tournament and begin matches."""
         config = get_config()
         admin_roles = config.get_tournament_admins(interaction.guild.id)
         has_perm = any(role.id in admin_roles for role in interaction.user.roles)
-
+        
         if not has_perm:
             embed = create_error_embed("Permission Denied", "You don't have permission to start tournaments.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        tournament = db.get_tournament(interaction.guild.id, tournament_id)
+        
+        # Find tournament by name
+        tournaments = db.get_guild_tournaments(interaction.guild.id, "registration")
+        tournament = None
+        for t in tournaments:
+            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
+                tournament = t
+                break
+        
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", "This tournament doesn't exist.")
+            embed = create_error_embed("Tournament Not Found", f"No registration-open tournament found with name '{tournament_name}'.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        tournament_id = tournament[0]
         if tournament[4] != "registration":
             embed = create_error_embed("Tournament Cannot Start", "This tournament is not in registration state.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -264,6 +295,117 @@ class Tournaments(commands.Cog):
             fields=[("Status", tournament[4].upper(), True)]
         )
         
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="tourneys", description="Browse active tournaments")
+    @app_commands.describe(status="Filter by status (registration, active, completed, or all)")
+    async def browse_tournaments(
+        self,
+        interaction: discord.Interaction,
+        status: str = "all"
+    ):
+        """Browse tournaments."""
+        if status == "all":
+            tournaments = db.get_guild_tournaments(interaction.guild.id)
+        else:
+            tournaments = db.get_guild_tournaments(interaction.guild.id, status)
+        
+        if not tournaments:
+            embed = create_error_embed(
+                "No Tournaments",
+                f"No {status} tournaments found."
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        tournaments_text = "\n".join([
+            f"{Emojis.TROPHY} **{t[1]}** ({t[3]}) - {t[4].upper()}"
+            for t in tournaments[:10]  # Show first 10
+        ])
+        
+        embed = create_tournament_embed(
+            f"Tournaments ({status.upper()})",
+            tournaments_text,
+            color=Colors.GOLD
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="tourneylist", description="List tournaments with details")
+    @app_commands.describe(status="Filter by status (registration, active, completed, or all)")
+    async def list_tournaments(
+        self,
+        interaction: discord.Interaction,
+        status: str = "registration"
+    ):
+        """List tournaments with registration info."""
+        if status == "all":
+            tournaments = db.get_guild_tournaments(interaction.guild.id)
+        else:
+            tournaments = db.get_guild_tournaments(interaction.guild.id, status)
+        
+        if not tournaments:
+            embed = create_error_embed(
+                "No Tournaments",
+                f"No {status} tournaments found."
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        tournaments_text = ""
+        for t in tournaments[:5]:  # Show first 5 with details
+            teams = db.get_tournament_teams(interaction.guild.id, t[0])
+            tournaments_text += f"\n{Emojis.TROPHY} **{t[1]}**\n"
+            tournaments_text += f"Format: {t[3]} | Status: {t[4].upper()}\n"
+            tournaments_text += f"Teams: {len(teams)}\n"
+            if t[5]:  # started_at
+                tournaments_text += f"Started: <t:{int(t[5])}:R>\n"
+            tournaments_text += "---\n"
+        
+        embed = create_tournament_embed(
+            f"Tournament List ({status.upper()})",
+            tournaments_text or "No tournaments found.",
+            color=Colors.RUNE
+        )
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(name="tourneyview", description="View tournament details")
+    @app_commands.describe(tournament_name="Select tournament to view")
+    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
+    async def view_tournament(
+        self,
+        interaction: discord.Interaction,
+        tournament_name: str
+    ):
+        """View detailed tournament information."""
+        # Find tournament by name
+        tournaments = db.get_guild_tournaments(interaction.guild.id)
+        tournament = None
+        for t in tournaments:
+            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
+                tournament = t
+                break
+        
+        if not tournament:
+            embed = create_error_embed("Tournament Not Found", f"No tournament found with name '{tournament_name}'.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        tournament_id = tournament[0]
+        teams = db.get_tournament_teams(interaction.guild.id, tournament_id)
+        
+        embed = create_tournament_embed(
+            tournament[1],  # name
+            f"**Format**: {tournament[3]}\n**Status**: {tournament[4].upper()}\n**Teams**: {len(teams)}",
+            color=Colors.GOLD
+        )
+        
+        if teams:
+            teams_text = "\n".join([f"• {team[2]}" for team in teams[:10]])
+            embed.add_field(name="Registered Teams", value=teams_text, inline=False)
+        
+        if tournament[5]:  # started_at
+            embed.add_field(name="Started", value=f"<t:{int(tournament[5])}:R>", inline=True)
+        
+        if tournament[6]:  # ended_at
+            embed.add_field(name="Ended", value=f"<t:{int(tournament[6])}:R>", inline=True)
+
         await interaction.response.send_message(embed=embed)
 
 async def setup(bot):
