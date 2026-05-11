@@ -173,18 +173,26 @@ def create_error_embed(
     )
 
 
-def create_info_embed(
+def create_trial_embed(
     title: str,
     description: str = "",
-    color: int = Colors.GOLD,
-    footer: str = "Hall Information"
+    fields: Optional[list] = None,
+    status: str = "pending"
 ) -> discord.Embed:
-    """Create an informational embed."""
+    """Create a trial candidate embed."""
+    status_colors = {
+        "pending": Colors.INFO,
+        "approved": Colors.SUCCESS,
+        "denied": Colors.WARNING
+    }
+    color = status_colors.get(status, Colors.GOLD)
+    full_title = f"🛡️ {title}"
     return create_embed(
-        title=f"📜 {title}",
+        title=full_title,
         description=description,
         color=color,
-        footer_text=footer
+        fields=fields,
+        footer_text=f"Trial Status: {status.capitalize()}"
     )
 
 
@@ -224,27 +232,19 @@ def create_event_embed(
     )
 
 
-def create_trial_embed(
+def create_info_embed(
     title: str,
     description: str = "",
     fields: Optional[list] = None,
-    status: str = "pending"
+    color: int = Colors.INFO
 ) -> discord.Embed:
-    """Create a trial candidate embed."""
-    status_colors = {
-        "pending": Colors.INFO,
-        "approved": Colors.SUCCESS,
-        "denied": Colors.WARNING
-    }
-    color = status_colors.get(status, Colors.GOLD)
-    
-    full_title = f"🛡️ {title}"
+    """Create an info-themed embed."""
     return create_embed(
-        title=full_title,
+        title=title,
         description=description,
         color=color,
         fields=fields,
-        footer_text=f"Trial Status: {status.capitalize()}"
+        footer_text="Information"
     )
 
 
@@ -281,6 +281,7 @@ class Emojis:
     ANNOUNCE = "📢"
     JUDGE = "⚖️"
     VICTORY = "🏆"
+    TROPHY = "🏆"
     DANGER = "⚠️"
     CHECK = "✅"
     CROSS = "❌"

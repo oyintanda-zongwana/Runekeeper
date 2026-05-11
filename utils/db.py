@@ -371,6 +371,34 @@ def deny_trial(guild_id, trial_id, denied_by):
     )
 
 
+def assign_gatekeeper(guild_id, trial_id, gatekeeper_id):
+    _execute(
+        "UPDATE trial_candidates SET approved_by = ?, status = ? WHERE guild_id = ? AND trial_id = ?",
+        (str(gatekeeper_id), "in_progress", str(guild_id), trial_id),
+    )
+
+
+def reset_trial_assignment(guild_id, trial_id):
+    _execute(
+        "UPDATE trial_candidates SET approved_by = NULL, status = ?, decision_date = NULL WHERE guild_id = ? AND trial_id = ?",
+        ("pending", str(guild_id), trial_id),
+    )
+
+
+def update_trial_message_id(guild_id, trial_id, message_id):
+    _execute(
+        "UPDATE trial_candidates SET message_id = ? WHERE guild_id = ? AND trial_id = ?",
+        (str(message_id), str(guild_id), trial_id),
+    )
+
+
+def update_trial_status(guild_id, trial_id, status):
+    _execute(
+        "UPDATE trial_candidates SET status = ? WHERE guild_id = ? AND trial_id = ?",
+        (status, str(guild_id), trial_id),
+    )
+
+
 def get_pending_trials(guild_id, user_id=None):
     if user_id:
         return _fetchall(

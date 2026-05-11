@@ -21,16 +21,95 @@ async def tournament_autocomplete(interaction: discord.Interaction, current: str
     tournaments = db.get_guild_tournaments(interaction.guild.id)
     choices = []
     for t in tournaments:
-        name = t[1]
-        if current.lower() in name.lower():
-            choices.append(app_commands.Choice(name=f"{name} ({t[4]})", value=name))
+        tournament_id = t[0]
+        name = t[2]
+        status = t[4]
+        if current.lower() in name.lower() or current.lower() in status.lower():
+            choices.append(
+                app_commands.Choice(
+                    name=f"{name} ({t[3]}) - {status}",
+                    value=tournament_id
+                )
+            )
     return choices[:25]  # Discord limit
+
+class TournamentResultModal(discord.ui.Modal, title="Report Match Result"):
+    winner_select = discord.ui.Select(
+        placeholder="Select winning team...",
+        options=[]
+    )
+    loser_select = discord.ui.Select(
+        placeholder="Select losing team...",
+        options=[]
+    )
+    round_num = discord.ui.TextInput(
+        label="Round Number",
+        placeholder="1",
+        default="1",
+        max_length=2
+    )
+
+    def __init__(self, cog, tournament, teams):
+        super().__init__()
+        self.cog = cog
+        self.tournament = tournament
+        self.teams = teams
+        
+        # Populate selects
+        winner_options = [discord.SelectOption(label=team[2], value=team[0]) for team in teams]
+        loser_options = winner_options.copy()
+        
+        self.winner_select.options = winner_options[:25]  # Discord limit
+        self.loser_select.options = loser_options[:25]
+
+    async def on_submit(self, interaction: discord.Interaction):
+        winner_team = self.winner_select.values[0]
+        loser_team = self.loser_select.values[0]
+        
+        if winner_team == loser_team:
+            embed = create_error_embed("Invalid Result", "Winner and loser cannot be the same team.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        try:
+            round_num = int(self.round_num.value)
+        except ValueError:
+            embed = create_error_embed("Invalid Round", "Round number must be a number.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        match_id = db.record_tournament_match(
+            guild_id=interaction.guild.id,
+            tournament_id=self.tournament[0],
+            winning_team_id=winner_team,
+            losing_team_id=loser_team,
+            round_num=round_num
+        )
+        db.log_action(interaction.guild.id, "tournament_result_reported", interaction.user.id, None, f"Tournament '{self.tournament[2]}' result recorded: winner {winner_team}, loser {loser_team}, round {round_num}")
+
+        winner_team_data = next(team for team in self.teams if team[0] == winner_team)
+        winner_mentions = " + ".join([f"<@{m}>" for m in json.loads(winner_team_data[4])])
+        embed = create_success_embed(
+            "Match Recorded",
+            f"**Winners**: {winner_mentions}\n**Tournament**: {self.tournament[2]}\n**Round**: {round_num}\n**Match ID**: {match_id}"
+        )
+
+        await interaction.response.send_message(embed=embed)
 
 class Tournaments(commands.Cog):
     """Tournament management for Hall of the Slain."""
     
     def __init__(self, bot):
         self.bot = bot
+
+    def _find_tournament(self, guild_id: int, tournament_id: str, status: str = None):
+        tournament = db.get_tournament(guild_id, tournament_id)
+        if tournament and (status is None or tournament[4] == status):
+            return tournament
+
+        tournaments = db.get_guild_tournaments(guild_id, status) if status else db.get_guild_tournaments(guild_id)
+        for t in tournaments:
+            if t[2].lower() == tournament_id.lower() or t[0] == tournament_id:
+                return t
+        return None
     
     @app_commands.command(name="tourneycreate", description="Create a new tournament")
     @app_commands.describe(
@@ -79,15 +158,15 @@ class Tournaments(commands.Cog):
     
     @app_commands.command(name="tourneyjoin", description="Join a tournament with a team")
     @app_commands.describe(
-        tournament_name="Select tournament to join",
+        tournament_id="Select tournament to join",
         team_name="Your team name",
         teammate="Your teammate for 2v2 tournaments"
     )
-    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
     async def join(
         self,
         interaction: discord.Interaction,
-        tournament_name: str,
+        tournament_id: str,
         team_name: str,
         teammate: discord.Member = None
     ):
@@ -99,26 +178,18 @@ class Tournaments(commands.Cog):
             embed = create_error_embed("Guild Not Configured", "This guild hasn't set up tournaments.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        # Find tournament by name
-        tournaments = db.get_guild_tournaments(interaction.guild.id, "registration")
-        tournament = None
-        for t in tournaments:
-            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
-                tournament = t
-                break
-        
+        # Find tournament by id or name
+        tournament = self._find_tournament(interaction.guild.id, tournament_id, status="registration")
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", f"No registration-open tournament found with name '{tournament_name}'.")
+            embed = create_error_embed("Tournament Not Found", "No registration-open tournament found with that identifier.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        tournament_id = tournament[0]
 
         if tournament[4] != "registration":
             embed = create_error_embed("Registration Closed", "This tournament is no longer accepting registrations.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         team_members = [interaction.user.id]
-        if tournament[2] == "2v2":
+        if tournament[3] == "2v2":
             if teammate is None:
                 embed = create_error_embed("Missing Teammate", "2v2 tournaments require a teammate. Please specify a teammate.")
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -131,6 +202,7 @@ class Tournaments(commands.Cog):
                 embed = create_error_embed("Invalid Format", "1v1 tournaments do not support teammates.")
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        tournament_id = tournament[0]
         existing_teams = db.get_tournament_teams(interaction.guild.id, tournament_id)
         for team in existing_teams:
             members = json.loads(team[4])
@@ -151,7 +223,7 @@ class Tournaments(commands.Cog):
         member_str = " + ".join([f"<@{m}>" for m in team_members])
         embed = create_tournament_embed(
             "Team Registered",
-            tournament[1],
+            tournament[2],
             f"**Team**: {team_name}\n**Members**: {member_str}",
             fields=[("Status", "Registered", True), ("Team ID", team_id, True)]
         )
@@ -159,12 +231,12 @@ class Tournaments(commands.Cog):
         await interaction.response.send_message(embed=embed)
     
     @app_commands.command(name="tourneystart", description="Start a tournament")
-    @app_commands.describe(tournament_name="Select tournament to start")
-    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
+    @app_commands.describe(tournament_id="Select tournament to start")
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
     async def start(
         self,
         interaction: discord.Interaction,
-        tournament_name: str
+        tournament_id: str
     ):
         """Start a tournament and begin matches."""
         config = get_config()
@@ -175,16 +247,9 @@ class Tournaments(commands.Cog):
             embed = create_error_embed("Permission Denied", "You don't have permission to start tournaments.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        # Find tournament by name
-        tournaments = db.get_guild_tournaments(interaction.guild.id, "registration")
-        tournament = None
-        for t in tournaments:
-            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
-                tournament = t
-                break
-        
+        tournament = self._find_tournament(interaction.guild.id, tournament_id, status="registration")
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", f"No registration-open tournament found with name '{tournament_name}'.")
+            embed = create_error_embed("Tournament Not Found", "No registration-open tournament found with that identifier.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         tournament_id = tournament[0]
@@ -198,30 +263,24 @@ class Tournaments(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         db.start_tournament(interaction.guild.id, tournament_id)
+        db.log_action(interaction.guild.id, "tournament_started", interaction.user.id, None, f"Tournament '{tournament[2]}' started")
 
         embed = create_tournament_embed(
             "Tournament Started",
-            tournament[1],
-            f"{Lore.tournament_started(tournament[1])}\n\n**Format**: {tournament[2]}",
+            tournament[2],
+            f"{Lore.tournament_started(tournament[2])}\n\n**Format**: {tournament[3]}",
             fields=[("Status", "Active", True), ("Registered Teams", str(len(teams)), True)]
         )
 
         await interaction.response.send_message(embed=embed)
     
     @app_commands.command(name="tourneyresult", description="Report a match result")
-    @app_commands.describe(
-        tournament_id="Tournament ID",
-        winner_team="Winning team ID",
-        loser_team="Losing team ID",
-        round_num="Round number"
-    )
+    @app_commands.describe(tournament_id="Select tournament to report result for")
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
     async def result(
         self,
         interaction: discord.Interaction,
-        tournament_id: str,
-        winner_team: str,
-        loser_team: str,
-        round_num: int = 1
+        tournament_id: str
     ):
         """Report tournament match results."""
         config = get_config()
@@ -232,46 +291,34 @@ class Tournaments(commands.Cog):
             embed = create_error_embed("Permission Denied", "You don't have permission to report results.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        tournament = db.get_tournament(interaction.guild.id, tournament_id)
+        tournament = self._find_tournament(interaction.guild.id, tournament_id, status="active")
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", "This tournament doesn't exist.")
+            embed = create_error_embed("Tournament Not Found", "This tournament doesn't exist or is not active.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         if tournament[4] != "active":
             embed = create_error_embed("Tournament Not Active", "This tournament is not currently active.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        winner = db.get_tournament_team(interaction.guild.id, tournament_id, winner_team)
-        loser = db.get_tournament_team(interaction.guild.id, tournament_id, loser_team)
-        if not winner or not loser:
-            embed = create_error_embed("Team Not Found", "One or both team IDs do not exist.")
+        teams = db.get_tournament_teams(interaction.guild.id, tournament[0])
+        if len(teams) < 2:
+            embed = create_error_embed("Not Enough Teams", "This tournament needs at least 2 teams to record results.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        match_id = db.record_tournament_match(
-            guild_id=interaction.guild.id,
-            tournament_id=tournament_id,
-            winning_team_id=winner_team,
-            losing_team_id=loser_team,
-            round_num=round_num
-        )
-
-        winner_mentions = " + ".join([f"<@{m}>" for m in json.loads(winner[4])])
-        embed = create_success_embed(
-            "Match Recorded",
-            f"**Winners**: {winner_mentions}\n**Tournament**: {tournament[1]}\n**Round**: {round_num}\n**Match ID**: {match_id}"
-        )
-
-        await interaction.response.send_message(embed=embed)
+        # Create modal with selects
+        modal = TournamentResultModal(self, tournament, teams)
+        await interaction.response.send_modal(modal)
     
     @app_commands.command(name="tourneyleaderboard", description="View tournament leaderboard")
-    @app_commands.describe(tournament_id="Tournament ID")
+    @app_commands.describe(tournament_id="Select tournament")
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
     async def leaderboard(
         self,
         interaction: discord.Interaction,
         tournament_id: str
     ):
         """Display tournament leaderboard."""
-        tournament = db.get_tournament(interaction.guild.id, tournament_id)
+        tournament = self._find_tournament(interaction.guild.id, tournament_id)
         if not tournament:
             embed = create_error_embed("Tournament Not Found", "This tournament doesn't exist.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -290,7 +337,7 @@ class Tournaments(commands.Cog):
         
         embed = create_tournament_embed(
             "Leaderboard",
-            tournament[1],
+            tournament[2],
             leaderboard_text or "No matches yet.",
             fields=[("Status", tournament[4].upper(), True)]
         )
@@ -318,14 +365,13 @@ class Tournaments(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
         tournaments_text = "\n".join([
-            f"{Emojis.TROPHY} **{t[1]}** ({t[3]}) - {t[4].upper()}"
+            f"{Emojis.TROPHY} **{t[2]}** ({t[3]}) - {t[4].upper()}"
             for t in tournaments[:10]  # Show first 10
         ])
         
         embed = create_tournament_embed(
             f"Tournaments ({status.upper()})",
-            tournaments_text,
-            color=Colors.GOLD
+            tournaments_text
         )
         await interaction.response.send_message(embed=embed)
 
@@ -352,11 +398,11 @@ class Tournaments(commands.Cog):
         tournaments_text = ""
         for t in tournaments[:5]:  # Show first 5 with details
             teams = db.get_tournament_teams(interaction.guild.id, t[0])
-            tournaments_text += f"\n{Emojis.TROPHY} **{t[1]}**\n"
+            tournaments_text += f"\n{Emojis.TROPHY} **{t[2]}**\n"
             tournaments_text += f"Format: {t[3]} | Status: {t[4].upper()}\n"
             tournaments_text += f"Teams: {len(teams)}\n"
-            if t[5]:  # started_at
-                tournaments_text += f"Started: <t:{int(t[5])}:R>\n"
+            if t[7]:  # started_at
+                tournaments_text += f"Started: <t:{int(t[7])}:R>\n"
             tournaments_text += "---\n"
         
         embed = create_tournament_embed(
@@ -367,31 +413,24 @@ class Tournaments(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="tourneyview", description="View tournament details")
-    @app_commands.describe(tournament_name="Select tournament to view")
-    @app_commands.autocomplete(tournament_name=tournament_autocomplete)
+    @app_commands.describe(tournament_id="Select tournament to view")
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
     async def view_tournament(
         self,
         interaction: discord.Interaction,
-        tournament_name: str
+        tournament_id: str
     ):
         """View detailed tournament information."""
-        # Find tournament by name
-        tournaments = db.get_guild_tournaments(interaction.guild.id)
-        tournament = None
-        for t in tournaments:
-            if t[1].lower() == tournament_name.lower() or t[0] == tournament_name:
-                tournament = t
-                break
-        
+        tournament = self._find_tournament(interaction.guild.id, tournament_id)
         if not tournament:
-            embed = create_error_embed("Tournament Not Found", f"No tournament found with name '{tournament_name}'.")
+            embed = create_error_embed("Tournament Not Found", "No tournament found for that identifier.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         tournament_id = tournament[0]
         teams = db.get_tournament_teams(interaction.guild.id, tournament_id)
         
         embed = create_tournament_embed(
-            tournament[1],  # name
+            tournament[2],  # name
             f"**Format**: {tournament[3]}\n**Status**: {tournament[4].upper()}\n**Teams**: {len(teams)}",
             color=Colors.GOLD
         )
@@ -400,11 +439,11 @@ class Tournaments(commands.Cog):
             teams_text = "\n".join([f"• {team[2]}" for team in teams[:10]])
             embed.add_field(name="Registered Teams", value=teams_text, inline=False)
         
-        if tournament[5]:  # started_at
-            embed.add_field(name="Started", value=f"<t:{int(tournament[5])}:R>", inline=True)
+        if tournament[7]:  # started_at
+            embed.add_field(name="Started", value=f"<t:{int(tournament[7])}:R>", inline=True)
         
-        if tournament[6]:  # ended_at
-            embed.add_field(name="Ended", value=f"<t:{int(tournament[6])}:R>", inline=True)
+        if tournament[8]:  # ended_at
+            embed.add_field(name="Ended", value=f"<t:{int(tournament[8])}:R>", inline=True)
 
         await interaction.response.send_message(embed=embed)
 

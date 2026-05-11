@@ -14,6 +14,22 @@ from utils.themes import (
 )
 from utils.decorators import require_event_admin
 
+async def event_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+    """Autocomplete for selecting an event by name."""
+    events = db.get_guild_events(interaction.guild.id, status="scheduled")
+    choices = []
+    for event in events:
+        name = event[2]
+        scheduled = int(event[4])
+        if current.lower() in name.lower():
+            choices.append(
+                app_commands.Choice(
+                    name=f"{name} (<t:{scheduled}:R>)",
+                    value=event[1]
+                )
+            )
+    return choices[:25]  # Discord limit
+
 class Events(commands.Cog):
     """Event management for Hall of the Slain."""
     
@@ -37,17 +53,19 @@ class Events(commands.Cog):
         hours_from_now: int
     ):
         """Create a new guild event."""
+        await interaction.response.defer()
+        
         config = get_config()
         admin_roles = config.get_event_admins(interaction.guild.id)
         has_perm = any(role.id in admin_roles for role in interaction.user.roles)
         
         if not has_perm:
             embed = create_error_embed("Permission Denied", "You don't have permission to create events.")
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
+            return await interaction.followup.send(embed=embed, ephemeral=True)
         
         if hours_from_now < 1:
             embed = create_error_embed("Invalid Time", "Event must be at least 1 hour from now.")
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
+            return await interaction.followup.send(embed=embed, ephemeral=True)
         
         # Calculate scheduled time
         scheduled_for = int(time.time()) + (hours_from_now * 3600)
@@ -59,6 +77,7 @@ class Events(commands.Cog):
             created_by=interaction.user.id,
             description=description
         )
+        db.log_action(interaction.guild.id, "event_created", interaction.user.id, None, f"Event '{name}' scheduled for {scheduled_for}")
         
         embed = create_event_embed(
             "Event Created",
@@ -76,19 +95,21 @@ class Events(commands.Cog):
         if event_channel_id:
             channel = interaction.guild.get_channel(event_channel_id)
             if channel:
-                # Create RSVP buttons
-                view = discord.ui.View()
+                # Create persistent RSVP buttons
+                view = discord.ui.View(timeout=None)
                 view.add_item(RsvpButton("yes", event_id, interaction.guild.id, self.bot))
                 view.add_item(RsvpButton("no", event_id, interaction.guild.id, self.bot))
-                await channel.send(embed=embed, view=view)
+                message = await channel.send(embed=embed, view=view)
+                self.bot.add_view(view, message_id=message.id)
         
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
     
     @app_commands.command(name="eventrsvp", description="RSVP to an event")
     @app_commands.describe(
         event_id="Event ID",
         status="RSVP status (attending or not_attending)"
     )
+    @app_commands.autocomplete(event_id=event_autocomplete)
     async def rsvp(
         self,
         interaction: discord.Interaction,
@@ -111,6 +132,7 @@ class Events(commands.Cog):
             user_id=interaction.user.id,
             status=status
         )
+        db.log_action(interaction.guild.id, "event_rsvp", interaction.user.id, None, f"RSVP '{status}' for event '{event[2]}' ({event_id})")
         
         status_emoji = Emojis.CHECK if status == "attending" else Emojis.CROSS
         embed = create_success_embed(
@@ -120,37 +142,40 @@ class Events(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     
-    @app_commands.command(name="eventlist", description="List all upcoming events")
-    async def list_events(self, interaction: discord.Interaction):
-        """Display all upcoming events."""
-        events = db.get_guild_events(interaction.guild.id, status="scheduled")
-        
+    def _build_event_list_embed(self, guild_id: int) -> discord.Embed:
+        events = db.get_guild_events(guild_id, status="scheduled")
         if not events:
-            embed = create_error_embed("No Events", "No upcoming events scheduled.")
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
+            return create_error_embed("No Events", "No upcoming events scheduled.")
+
         events_text = ""
         for event in events[:10]:
-            guild_id, event_id, name, desc, scheduled, creator_id, created_at, status = event
-            time_str = f"<t:{int(scheduled)}:R>"
+            name = event[2]
+            scheduled = int(event[4])
+            time_str = f"<t:{scheduled}:R>"
             events_text += f"{Emojis.ANNOUNCE} **{name}** - {time_str}\n"
-        
-        embed = create_event_embed(
+
+        return create_event_embed(
             "Upcoming Events",
             "",
             events_text,
             footer="Hall Events"
         )
-        
+
+    @app_commands.command(name="eventlist", description="List all upcoming events")
+    async def list_events(self, interaction: discord.Interaction):
+        """Display all upcoming events."""
+        embed = self._build_event_list_embed(interaction.guild.id)
         await interaction.response.send_message(embed=embed)
-    
+
     @app_commands.command(name="events", description="Browse upcoming events")
     async def browse_events(self, interaction: discord.Interaction):
         """Browse upcoming events (alias for eventlist)."""
-        await self.list_events(interaction)
-    
+        embed = self._build_event_list_embed(interaction.guild.id)
+        await interaction.response.send_message(embed=embed)
+
     @app_commands.command(name="eventview", description="View event details")
     @app_commands.describe(event_id="Event ID")
+    @app_commands.autocomplete(event_id=event_autocomplete)
     async def view_event(
         self,
         interaction: discord.Interaction,
@@ -189,6 +214,7 @@ class Events(commands.Cog):
     
     @app_commands.command(name="eventrsvplist", description="See who RSVPed to an event")
     @app_commands.describe(event_id="Event ID")
+    @app_commands.autocomplete(event_id=event_autocomplete)
     async def rsvp_list(
         self,
         interaction: discord.Interaction,
@@ -269,7 +295,7 @@ class RsvpButton(discord.ui.Button):
         emoji = Emojis.CHECK if status == "yes" else Emojis.CROSS
         style = discord.ButtonStyle.green if status == "yes" else discord.ButtonStyle.red
         
-        super().__init__(label=label, style=style, emoji=emoji)
+        super().__init__(label=label, style=style, emoji=emoji, custom_id=f"event_rsvp_{event_id}_{status}")
     
     async def callback(self, interaction: discord.Interaction):
         status = "attending" if self.status == "yes" else "not_attending"
@@ -280,6 +306,7 @@ class RsvpButton(discord.ui.Button):
             user_id=interaction.user.id,
             status=status
         )
+        db.log_action(self.guild_id, "event_rsvp", interaction.user.id, None, f"RSVP '{status}' for event '{self.event_id}'")
         
         embed = create_success_embed(
             f"{self.emoji} RSVP Recorded",

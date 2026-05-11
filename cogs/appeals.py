@@ -48,6 +48,7 @@ class AppealButtons(discord.ui.View):
             )
         
         db.approve_appeal(self.guild_id, self.appeal_id, interaction.user.id)
+        db.log_action(self.guild_id, "appeal_approved", interaction.user.id, self.user_id, f"Appeal '{self.appeal_id}' approved")
         
         embed = create_success_embed(
             "Appeal Approved",
@@ -88,6 +89,7 @@ class AppealButtons(discord.ui.View):
             )
         
         db.deny_appeal(self.guild_id, self.appeal_id, interaction.user.id)
+        db.log_action(self.guild_id, "appeal_denied", interaction.user.id, self.user_id, f"Appeal '{self.appeal_id}' denied")
         
         embed = create_error_embed(
             "Appeal Denied",
@@ -142,6 +144,7 @@ class Appeals(commands.Cog):
             user_id=interaction.user.id,
             reason=reason
         )
+        db.log_action(interaction.guild.id, "appeal_submitted", interaction.user.id, None, f"Appeal '{appeal_id}' submitted")
         
         embed = create_appeal_embed(
             "Appeal Submitted",

@@ -11,6 +11,21 @@ with open(CONFIG_PATH) as f:
 PREFIX = config["prefix"]
 
 class Help(commands.Cog):
+    FRIENDLY_CATEGORIES = {
+        "HallInfo": "🏛 Hall Information",
+        "Trials": "⚔️ Trials",
+        "Tournaments": "🏆 Tournaments",
+        "Events": "📅 Events",
+        "Appeals": "📜 Appeals",
+        "Logging": "📋 Logging",
+        "Announcements": "📢 Announcements",
+        "Moderation": "🛡 Moderation",
+        "Roles": "👥 Roles",
+        "Server": "🏠 Server",
+        "AdminTools": "⚙️ Administration",
+        "Help": "❓ Help"
+    }
+
     def __init__(self, bot):
         self.bot = bot
 
@@ -22,53 +37,52 @@ class Help(commands.Cog):
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         return embed
 
-    def home_embed(self, ctx: commands.Context, prefix: str = None) -> discord.Embed:
+    def home_embed(self, ctx_or_interaction, prefix: str = None) -> discord.Embed:
         """Main help page."""
-        guild = ctx.guild
+        # Handle both Context and Interaction
+        if isinstance(ctx_or_interaction, discord.Interaction):
+            guild = ctx_or_interaction.guild
+            user = ctx_or_interaction.user
+        else:
+            guild = ctx_or_interaction.guild
+            user = ctx_or_interaction.author
+
         owner = guild.owner.mention if guild and guild.owner else "Unknown"
         member_count = guild.member_count if guild else "N/A"
+        online_count = len([m for m in guild.members if m.status != discord.Status.offline]) if guild else "N/A"
+        boost_level = guild.premium_tier if guild else 0
+        boost_count = guild.premium_subscription_count if guild else 0
         if prefix is None:
-            prefix = self.get_prefix(ctx)
+            prefix = self.get_prefix(ctx_or_interaction) if hasattr(ctx_or_interaction, 'prefix') else PREFIX
 
-        embed = self._base_embed("🏠 Help Center")
+        embed = self._base_embed("🏠 Hall of the Slain Help Center")
         if guild:
             embed.set_author(name=guild.name, icon_url=guild.icon.url if guild.icon else None)
 
         embed.description = (
-            f"**Server Owner : ** {owner}\n"
-            f"**Total Members : ** {member_count}\n"
-            f"**Prefix :** {prefix}\n\n"
-            "Use the dropdown menu below to browse command groups and see every command with its description."
+            "Welcome to the Hall management system.\n\n"
+            "⚔️ **Server Overview**\n"
+            f"👑 Owner: {owner}\n"
+            f"👥 Members: {member_count}\n"
+            f"📡 Online: {online_count}\n"
+            f"🚀 Boost Level: {boost_level} ({boost_count} boosts)\n"
+            f"🛠 Prefix: `{prefix}`\n\n"
+            "📖 Select a category below to browse commands."
         )
 
         categories = []
         for name, cog in self.bot.cogs.items():
-            total = len([cmd for cmd in cog.get_commands() if not cmd.hidden]) + len([cmd for cmd in cog.walk_app_commands() if not getattr(cmd, 'hidden', False) and not isinstance(cmd, app_commands.Group)])
-            if total > 0:
-                categories.append(f"🔹 **{name}** — {total} commands")
+            if name in self.FRIENDLY_CATEGORIES:
+                total = len([cmd for cmd in cog.get_commands() if not cmd.hidden]) + len([cmd for cmd in cog.walk_app_commands() if not getattr(cmd, 'hidden', False) and not isinstance(cmd, app_commands.Group)])
+                if total > 0:
+                    friendly_name = self.FRIENDLY_CATEGORIES.get(name, name)
+                    categories.append(f"• {friendly_name} — {total} commands")
 
         if categories:
             category_list = "\n".join(categories)
-            if len(category_list) <= 1024:
-                embed.add_field(name="📁 Command Groups", value=category_list, inline=False)
-            else:
-                parts = []
-                current = ""
-                for line in categories:
-                    if len(current) + len(line) + 1 > 1024:
-                        parts.append(current.strip())
-                        current = line
-                    else:
-                        if current:
-                            current += "\n"
-                        current += line
-                if current:
-                    parts.append(current.strip())
-                for i, part in enumerate(parts):
-                    field_name = "📁 Command Groups" if i == 0 else "📁 Command Groups (cont.)"
-                    embed.add_field(name=field_name, value=part, inline=False)
+            embed.add_field(name="📁 Command Categories", value=category_list, inline=False)
         else:
-            embed.add_field(name="📁 Command Groups", value="No commands found.", inline=False)
+            embed.add_field(name="📁 Command Categories", value="No commands found.", inline=False)
 
         embed.set_footer(text="Use the dropdown to navigate")
         return embed
