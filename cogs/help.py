@@ -25,6 +25,7 @@ class Help(commands.Cog):
         "AdminTools": "⚙️ Administration",
         "Help": "❓ Help"
     }
+    EXCLUDED_COGS = {"configmanager", "configdiagnosis"}
 
     def __init__(self, bot):
         self.bot = bot
@@ -42,10 +43,8 @@ class Help(commands.Cog):
         # Handle both Context and Interaction
         if isinstance(ctx_or_interaction, discord.Interaction):
             guild = ctx_or_interaction.guild
-            user = ctx_or_interaction.user
         else:
             guild = ctx_or_interaction.guild
-            user = ctx_or_interaction.author
 
         owner = guild.owner.mention if guild and guild.owner else "Unknown"
         member_count = guild.member_count if guild else "N/A"
@@ -72,6 +71,8 @@ class Help(commands.Cog):
 
         categories = []
         for name, cog in self.bot.cogs.items():
+            if name.lower() in self.EXCLUDED_COGS:
+                continue
             if name in self.FRIENDLY_CATEGORIES:
                 total = len([cmd for cmd in cog.get_commands() if not cmd.hidden]) + len([cmd for cmd in cog.walk_app_commands() if not getattr(cmd, 'hidden', False) and not isinstance(cmd, app_commands.Group)])
                 if total > 0:
@@ -161,6 +162,8 @@ class Help(commands.Cog):
 
             options = [discord.SelectOption(label="🏠 Home", value="Home", description="Main help page")]
             for name, cog in bot.cogs.items():
+                if name.lower() in parent_view.cog.EXCLUDED_COGS:
+                    continue
                 command_count = parent_view.cog._count_cog_commands(cog)
                 if command_count > 0:
                     friendly_name = parent_view.cog.FRIENDLY_CATEGORIES.get(name, name)

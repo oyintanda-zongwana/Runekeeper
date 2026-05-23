@@ -24,10 +24,11 @@ async def tournament_autocomplete(interaction: discord.Interaction, current: str
         tournament_id = t[0]
         name = t[2]
         status = t[4]
-        if current.lower() in name.lower() or current.lower() in status.lower():
+        visibility = t[5] if len(t) > 5 else "public"
+        if current.lower() in name.lower() or current.lower() in status.lower() or current.lower() in visibility.lower():
             choices.append(
                 app_commands.Choice(
-                    name=f"{name} ({t[3]}) - {status}",
+                    name=f"{name} ({t[3]}) [{visibility}] - {status}",
                     value=tournament_id
                 )
             )
@@ -94,6 +95,94 @@ class TournamentResultModal(discord.ui.Modal, title="Report Match Result"):
 
         await interaction.response.send_message(embed=embed)
 
+class RemoveTournamentApplicantButton(discord.ui.Button):
+    def __init__(self, guild_id: int, tournament_id: str, target_id: int, bot):
+        self.guild_id = guild_id
+        self.tournament_id = tournament_id
+        self.target_id = target_id
+        self.bot = bot
+        super().__init__(style=discord.ButtonStyle.red, label="Remove Applicant", custom_id=f"tourney_remove_{tournament_id}_{target_id}")
+
+    async def callback(self, interaction: discord.Interaction):
+        config = get_config()
+        admin_roles = config.get_tournament_admins(interaction.guild.id)
+        if not any(role.id in admin_roles for role in interaction.user.roles):
+            embed = create_error_embed("Permission Denied", "Only tournament admins can use this action.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        removed_team = db.remove_tournament_participant(self.guild_id, self.tournament_id, self.target_id)
+        if not removed_team:
+            embed = create_error_embed("Not Found", "That user is not registered in the selected tournament.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        db.log_action(self.guild_id, "tournament_applicant_removed", interaction.user.id, str(self.target_id), f"Removed user {self.target_id} from tournament {self.tournament_id}")
+        embed = create_success_embed("Applicant Removed", "The selected user has been removed from the tournament.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class BanTournamentUserButton(discord.ui.Button):
+    def __init__(self, guild_id: int, tournament_id: str, target_id: int, bot):
+        self.guild_id = guild_id
+        self.tournament_id = tournament_id
+        self.target_id = target_id
+        self.bot = bot
+        super().__init__(style=discord.ButtonStyle.danger, label="Ban from Tournaments", custom_id=f"tourney_ban_{tournament_id}_{target_id}")
+
+    async def callback(self, interaction: discord.Interaction):
+        config = get_config()
+        admin_roles = config.get_tournament_admins(interaction.guild.id)
+        if not any(role.id in admin_roles for role in interaction.user.roles):
+            embed = create_error_embed("Permission Denied", "Only tournament admins can use this action.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if db.is_tournament_banned(self.guild_id, self.target_id):
+            embed = create_error_embed("Already Banned", "That user is already banned from tournaments.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        db.ban_tournament_user(self.guild_id, self.target_id, interaction.user.id, "Banned via tournament management")
+        db.remove_tournament_participant(self.guild_id, self.tournament_id, self.target_id)
+        db.log_action(self.guild_id, "tournament_user_banned", interaction.user.id, str(self.target_id), f"Banned user {self.target_id} from tournaments")
+
+        embed = create_success_embed("User Banned", "The user is now banned from entering future tournaments.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class UnbanTournamentUserButton(discord.ui.Button):
+    def __init__(self, guild_id: int, tournament_id: str, target_id: int, bot):
+        self.guild_id = guild_id
+        self.tournament_id = tournament_id
+        self.target_id = target_id
+        self.bot = bot
+        super().__init__(style=discord.ButtonStyle.green, label="Unban from Tournaments", custom_id=f"tourney_unban_{tournament_id}_{target_id}")
+
+    async def callback(self, interaction: discord.Interaction):
+        config = get_config()
+        admin_roles = config.get_tournament_admins(interaction.guild.id)
+        if not any(role.id in admin_roles for role in interaction.user.roles):
+            embed = create_error_embed("Permission Denied", "Only tournament admins can use this action.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if not db.is_tournament_banned(self.guild_id, self.target_id):
+            embed = create_error_embed("Not Banned", "That user is not currently banned from tournaments.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        db.unban_tournament_user(self.guild_id, self.target_id)
+        db.log_action(self.guild_id, "tournament_user_unbanned", interaction.user.id, str(self.target_id), f"Unbanned user {self.target_id} from tournaments")
+
+        embed = create_success_embed("User Unbanned", "The user can now apply for tournaments again.")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class ManageTournamentView(discord.ui.View):
+    def __init__(self, guild_id: int, tournament_id: str, target_member: discord.Member, bot):
+        super().__init__(timeout=None)
+        self.guild_id = guild_id
+        self.tournament_id = tournament_id
+        self.target_member = target_member
+        self.bot = bot
+        self.add_item(RemoveTournamentApplicantButton(guild_id, tournament_id, target_member.id, bot))
+        if db.is_tournament_banned(guild_id, target_member.id):
+            self.add_item(UnbanTournamentUserButton(guild_id, tournament_id, target_member.id, bot))
+        else:
+            self.add_item(BanTournamentUserButton(guild_id, tournament_id, target_member.id, bot))
+
 class Tournaments(commands.Cog):
     """Tournament management for Hall of the Slain."""
     
@@ -114,13 +203,19 @@ class Tournaments(commands.Cog):
     @app_commands.command(name="tourneycreate", description="Create a new tournament")
     @app_commands.describe(
         name="Tournament name",
-        format="Tournament format (1v1 or 2v2)"
+        format="Tournament format (1v1 or 2v2)",
+        visibility="Tournament visibility"
     )
+    @app_commands.choices(visibility=[
+        app_commands.Choice(name="Public", value="public"),
+        app_commands.Choice(name="Guild-Only", value="guild_only"),
+    ])
     async def create(
         self,
         interaction: discord.Interaction,
         name: str,
-        format: str
+        format: str,
+        visibility: app_commands.Choice[str]
     ):
         """Create a new tournament."""
         config = get_config()
@@ -139,6 +234,7 @@ class Tournaments(commands.Cog):
             guild_id=interaction.guild.id,
             name=name,
             format_type=format,
+            visibility=visibility.value,
             created_by=interaction.user.id
         )
         
@@ -147,7 +243,7 @@ class Tournaments(commands.Cog):
         embed = create_tournament_embed(
             "Tournament Created",
             name,
-            f"{Lore.tournament_created(name)}\n\n**Format**: {format}",
+            f"{Lore.tournament_created(name)}\n\n**Format**: {format}\n**Visibility**: {visibility.name}",
             fields=[
                 ("Status", "Registration Open", True),
                 ("Created by", interaction.user.mention, True)
@@ -155,6 +251,63 @@ class Tournaments(commands.Cog):
         )
         
         await interaction.response.send_message(embed=embed)
+    
+    @app_commands.command(name="deletealltourneys", description="Delete all tournaments and tournament data for this guild")
+    async def delete_all_tournaments(self, interaction: discord.Interaction):
+        config = get_config()
+        admin_roles = config.get_tournament_admins(interaction.guild.id)
+        has_perm = any(role.id in admin_roles for role in interaction.user.roles)
+
+        if not has_perm:
+            embed = create_error_embed("Permission Denied", "You don't have permission to delete tournaments.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        db.delete_all_tournaments(interaction.guild.id)
+        db.log_action(interaction.guild.id, "tournaments_deleted", interaction.user.id, None, "All tournament records cleared")
+
+        embed = create_success_embed(
+            "Tournaments Removed",
+            "All tournaments, teams, and match records have been deleted for this guild."
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="managetourney", description="Open tournament management actions for a user")
+    @app_commands.describe(
+        tournament_id="Tournament to manage",
+        member="User to manage"
+    )
+    @app_commands.autocomplete(tournament_id=tournament_autocomplete)
+    async def manage(
+        self,
+        interaction: discord.Interaction,
+        tournament_id: str,
+        member: discord.Member
+    ):
+        config = get_config()
+        admin_roles = config.get_tournament_admins(interaction.guild.id)
+        if not any(role.id in admin_roles for role in interaction.user.roles):
+            embed = create_error_embed("Permission Denied", "You don't have permission to manage tournaments.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        tournament = self._find_tournament(interaction.guild.id, tournament_id)
+        if not tournament:
+            embed = create_error_embed("Tournament Not Found", "No tournament found with that identifier.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        view = ManageTournamentView(interaction.guild.id, tournament[0], member, self.bot)
+        banned = db.is_tournament_banned(interaction.guild.id, member.id)
+        status_text = "Banned" if banned else "Allowed"
+        embed = create_tournament_embed(
+            "Manage Tournament Participant",
+            tournament[2],
+            f"**Target**: {member.mention}\n**Tournament**: {tournament[2]}\n**Ban Status**: {status_text}",
+            fields=[
+                ("Tournament Status", tournament[4].upper(), True),
+                ("Visibility", tournament[5], True)
+            ]
+        )
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
     @app_commands.command(name="tourneyjoin", description="Join a tournament with a team")
     @app_commands.describe(
@@ -188,6 +341,29 @@ class Tournaments(commands.Cog):
             embed = create_error_embed("Registration Closed", "This tournament is no longer accepting registrations.")
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        if len(tournament) > 5 and tournament[5] == "guild_only":
+            guild_roles = config.get_guild_roles(interaction.guild.id)
+            if not guild_roles:
+                embed = create_error_embed(
+                    "Configuration Required",
+                    "Guild-only tournaments require configured guild roles. Please set up `guild_roles` in your guild settings."
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+            if not any(role.id in guild_roles.values() for role in interaction.user.roles):
+                embed = create_error_embed(
+                    "Access Denied",
+                    "This tournament is guild-only. You must hold a configured guild role to apply."
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if db.is_tournament_banned(interaction.guild.id, interaction.user.id):
+            embed = create_error_embed(
+                "Banned from Tournaments",
+                "You are banned from entering tournaments and cannot join this one."
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
         team_members = [interaction.user.id]
         if tournament[3] == "2v2":
             if teammate is None:
@@ -195,6 +371,12 @@ class Tournaments(commands.Cog):
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
             if teammate.id == interaction.user.id:
                 embed = create_error_embed("Invalid Teammate", "You cannot add yourself as your own teammate.")
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+            if db.is_tournament_banned(interaction.guild.id, teammate.id):
+                embed = create_error_embed(
+                    "Banned Teammate",
+                    "Your teammate is banned from tournaments and cannot participate."
+                )
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
             team_members.append(teammate.id)
         else:
@@ -365,7 +547,7 @@ class Tournaments(commands.Cog):
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
         tournaments_text = "\n".join([
-            f"{Emojis.TROPHY} **{t[2]}** ({t[3]}) - {t[4].upper()}"
+            f"{Emojis.TROPHY} **{t[2]}** ({t[3]}) [{t[5]}] - {t[4].upper()}"
             for t in tournaments[:10]  # Show first 10
         ])
         
@@ -399,10 +581,10 @@ class Tournaments(commands.Cog):
         for t in tournaments[:5]:  # Show first 5 with details
             teams = db.get_tournament_teams(interaction.guild.id, t[0])
             tournaments_text += f"\n{Emojis.TROPHY} **{t[2]}**\n"
-            tournaments_text += f"Format: {t[3]} | Status: {t[4].upper()}\n"
+            tournaments_text += f"Format: {t[3]} | Status: {t[4].upper()} | Visibility: {t[5]}\n"
             tournaments_text += f"Teams: {len(teams)}\n"
-            if t[7]:  # started_at
-                tournaments_text += f"Started: <t:{int(t[7])}:R>\n"
+            if t[8]:  # started_at
+                tournaments_text += f"Started: <t:{int(t[8])}:R>\n"
             tournaments_text += "---\n"
         
         embed = create_tournament_embed(
@@ -431,7 +613,7 @@ class Tournaments(commands.Cog):
         
         embed = create_tournament_embed(
             tournament[2],  # name
-            f"**Format**: {tournament[3]}\n**Status**: {tournament[4].upper()}\n**Teams**: {len(teams)}",
+            f"**Format**: {tournament[3]}\n**Status**: {tournament[4].upper()}\n**Visibility**: {tournament[5]}\n**Teams**: {len(teams)}",
             color=Colors.GOLD
         )
         
@@ -439,11 +621,11 @@ class Tournaments(commands.Cog):
             teams_text = "\n".join([f"• {team[2]}" for team in teams[:10]])
             embed.add_field(name="Registered Teams", value=teams_text, inline=False)
         
-        if tournament[7]:  # started_at
-            embed.add_field(name="Started", value=f"<t:{int(tournament[7])}:R>", inline=True)
+        if tournament[8]:  # started_at
+            embed.add_field(name="Started", value=f"<t:{int(tournament[8])}:R>", inline=True)
         
-        if tournament[8]:  # ended_at
-            embed.add_field(name="Ended", value=f"<t:{int(tournament[8])}:R>", inline=True)
+        if tournament[9]:  # ended_at
+            embed.add_field(name="Ended", value=f"<t:{int(tournament[9])}:R>", inline=True)
 
         await interaction.response.send_message(embed=embed)
 

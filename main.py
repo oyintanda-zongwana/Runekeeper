@@ -1,11 +1,10 @@
 import asyncio
 import discord
-import os
 from discord.ext import commands
 from discord import app_commands
 from difflib import get_close_matches
 from utils import db
-from config import init_config, get_config
+from config import init_config
 
 # Initialize configuration
 config_obj = init_config("config.json")
@@ -22,10 +21,14 @@ intents.message_content = True
 intents.members = True
 
 async def get_prefix(bot, message):
+    prefix = DEFAULT_PREFIX
     if message.guild:
-        prefix = await asyncio.to_thread(db.get_setting, message.guild.id, "prefix", DEFAULT_PREFIX)
-    else:
-        prefix = DEFAULT_PREFIX
+        try:
+            result = await asyncio.to_thread(db.get_setting, message.guild.id, "prefix", DEFAULT_PREFIX)
+            if result:
+                prefix = result
+        except Exception:
+            prefix = "!"
     return commands.when_mentioned_or(prefix)(bot, message)
 
 class RunekeeperBot(commands.Bot):
@@ -33,6 +36,7 @@ class RunekeeperBot(commands.Bot):
     
     async def setup_hook(self):
         self.owner_id = OWNER_ID
+        self.remove_command('help')
 
         # Load all cogs
         cog_files = [
@@ -58,11 +62,9 @@ class RunekeeperBot(commands.Bot):
             except Exception as e:
                 print(f"❌ Failed to load {cog_file}: {e}")
 
-        # Sync commands
         try:
             if GUILD_ID:
                 guild = discord.Object(id=GUILD_ID)
-                self.tree.clear_commands(guild=guild)
                 self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
                 print(f"✅ Synced commands to test guild {GUILD_ID}")
@@ -76,7 +78,7 @@ class RunekeeperBot(commands.Bot):
 
     async def register_persistent_views(self):
         try:
-            from cogs.trials import TrialQueueView
+            from cogs.trials import TrialQueueView, SubmitResultView
 
             pending_views = await asyncio.to_thread(
                 db._fetchall,
@@ -96,8 +98,31 @@ class RunekeeperBot(commands.Bot):
                 self.add_view(view, message_id=message_id)
                 restored += 1
 
+            in_progress_trials = await asyncio.to_thread(
+                db._fetchall,
+                "SELECT trial_id, guild_id, user_id, approved_by FROM trial_candidates WHERE status = 'in_progress'"
+            )
+            restored_result_views = 0
+            for row in in_progress_trials:
+                try:
+                    trial_id = row[0]
+                    guild_id = int(row[1])
+                    user_id = int(row[2])
+                    gatekeeper_id = int(row[3]) if row[3] else None
+                except (TypeError, ValueError, IndexError):
+                    continue
+
+                if gatekeeper_id is None:
+                    continue
+
+                view = SubmitResultView(trial_id, user_id, gatekeeper_id)
+                self.add_view(view)
+                restored_result_views += 1
+
             if restored:
                 print(f"✅ Restored {restored} persistent trial queue views")
+            if restored_result_views:
+                print(f"✅ Restored {restored_result_views} persistent trial result views")
         except Exception as e:
             print(f"⚠️ Failed to register persistent trial views: {e}")
 
@@ -133,6 +158,23 @@ async def on_ready():
     moderation_cog = bot.get_cog('Moderation')
     if moderation_cog:
         moderation_cog.check_mutes.start()
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    embed = discord.Embed(
+        title="🛡️ Hail, Warrior!",
+        description=(
+            "Welcome to the gates of the **Hall Of The Slain**. The Norns have guided your steps here, but to truly stand among our ranks, you must prove your worth.\n\n"
+            "If you seek to pledge your axe to our clan and become a full member, step into the server and type `/applyfortrial` in the bot commands channel to begin your journey.\n\n"
+            "*If the winds of fate blew you here by mistake, or you do not seek to join the Hall, simply ignore this message and go in peace.*"
+        ),
+        color=0xFFD700
+    )
+    try:
+        await member.send(embed=embed)
+        print(f"✅ Sent welcome DM to {member} ({member.id})")
+    except discord.Forbidden:
+        print(f"⚠️ Could not DM new member {member} ({member.id}); DMs may be disabled.")
 
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):

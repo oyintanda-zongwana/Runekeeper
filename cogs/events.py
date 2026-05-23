@@ -104,6 +104,25 @@ class Events(commands.Cog):
         
         await interaction.followup.send(embed=embed)
     
+    @app_commands.command(name="deleteallevents", description="Delete all events and RSVP data for this guild")
+    async def delete_all_events(self, interaction: discord.Interaction):
+        config = get_config()
+        admin_roles = config.get_event_admins(interaction.guild.id)
+        has_perm = any(role.id in admin_roles for role in interaction.user.roles)
+
+        if not has_perm:
+            embed = create_error_embed("Permission Denied", "You don't have permission to delete events.")
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        db.delete_all_events(interaction.guild.id)
+        db.log_action(interaction.guild.id, "events_deleted", interaction.user.id, None, "All event records cleared")
+
+        embed = create_success_embed(
+            "Events Removed",
+            "All events and RSVP records have been deleted for this guild."
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(name="eventrsvp", description="RSVP to an event")
     @app_commands.describe(
         event_id="Event ID",

@@ -13,8 +13,48 @@ from utils.themes import (
     create_trial_embed, create_success_embed, create_error_embed, create_info_embed,
     Colors, Lore, Emojis
 )
-from utils.decorators import require_trial_reviewer
 from utils.interactions import InteractionHandler, PermissionHelper, cooldown_manager
+
+async def _safe_add_role(member: discord.Member, role: discord.Role):
+    if not member or not role:
+        return
+    try:
+        await member.add_roles(role)
+    except discord.Forbidden:
+        pass
+
+async def _safe_remove_role(member: discord.Member, role: discord.Role):
+    if not member or not role:
+        return
+    try:
+        await member.remove_roles(role)
+    except discord.Forbidden:
+        pass
+
+def _resolve_role(guild: discord.Guild, role_input):
+    if not guild or not role_input:
+        return None
+    if isinstance(role_input, int):
+        return guild.get_role(role_input)
+    try:
+        role_id = int(str(role_input).strip())
+        role = guild.get_role(role_id)
+        if role:
+            return role
+    except (TypeError, ValueError):
+        pass
+    role_text = str(role_input).strip()
+    if role_text.startswith("<@&") and role_text.endswith(">"):
+        try:
+            role_id = int(role_text[3:-1])
+            return guild.get_role(role_id)
+        except ValueError:
+            pass
+    lower_name = role_text.lower()
+    for role in guild.roles:
+        if role.name.lower() == lower_name:
+            return role
+    return None
 
 class TrialApplicationModal(discord.ui.Modal, title="Trial Application"):
     age = discord.ui.TextInput(
@@ -92,12 +132,8 @@ class TrialApplicationModal(discord.ui.Modal, title="Trial Application"):
         # Assign Aspirant role
         aspirant_role_id = settings.get("aspirant_role_id")
         if aspirant_role_id:
-            try:
-                role = interaction.guild.get_role(int(aspirant_role_id))
-                if role:
-                    await interaction.user.add_roles(role)
-            except Exception as e:
-                print(f"Error assigning aspirant role: {e}")
+            aspirant_role = _resolve_role(interaction.guild, aspirant_role_id)
+            await _safe_add_role(interaction.user, aspirant_role)
         
         # Post to gatekeeper channel
         gatekeeper_channel_id = settings.get("gatekeeper_channel")
@@ -159,6 +195,13 @@ class TrialAssignmentButton(discord.ui.Button):
         if not applicant:
             embed = create_error_embed("Applicant Missing", "The applicant is no longer in the guild.")
             return await interaction.followup.send(embed=embed, ephemeral=True)
+
+        config = get_config()
+        settings = config.get_guild_settings(interaction.guild.id)
+        aspirant_role_id = settings.get("aspirant_role_id")
+        if aspirant_role_id:
+            aspirant_role = _resolve_role(interaction.guild, aspirant_role_id)
+            await _safe_add_role(applicant, aspirant_role)
 
         # Assign
         await asyncio.to_thread(db.assign_gatekeeper, interaction.guild.id, self.trial_id, interaction.user.id)
@@ -292,7 +335,7 @@ class TrialResultModal(discord.ui.Modal, title="Trial Result"):
         max_length=500
     )
 
-    def __init__(self, trial_id, applicant_id, gatekeeper_id, channel):
+    def __init__(self, trial_id, applicant_id, gatekeeper_id, channel=None):
         super().__init__()
         self.trial_id = trial_id
         self.applicant_id = applicant_id
@@ -313,34 +356,41 @@ class TrialResultModal(discord.ui.Modal, title="Trial Result"):
         rank_role_text = self.rank_role.value.strip()
         strengths_weaknesses_text = self.strengths_weaknesses.value.strip()
 
+        applicant_member = interaction.guild.get_member(self.applicant_id)
+        if not applicant_member:
+            try:
+                applicant_member = await interaction.guild.fetch_member(self.applicant_id)
+            except discord.NotFound:
+                applicant_member = None
+
+        # Always update trial status before closing the channel
+        await asyncio.to_thread(db.update_trial_status, interaction.guild.id, self.trial_id, "approved" if result == "approve" else "denied")
+
+        # Remove Aspirant role for all completed trials
+        aspirant_role_id = settings.get("aspirant_role_id")
+        if aspirant_role_id and applicant_member:
+            aspirant_role = _resolve_role(interaction.guild, aspirant_role_id)
+            await _safe_remove_role(applicant_member, aspirant_role)
+
         if result == "approve":
             await asyncio.to_thread(db.approve_trial, interaction.guild.id, self.trial_id, self.gatekeeper_id)
             await asyncio.to_thread(db.log_action, interaction.guild.id, "trial_approved", self.gatekeeper_id, self.applicant_id, f"Trial approved: Score {self.score.value}, Rank/Role {rank_role_text}")
-            
-            # Assign role
-            trial_role_id = settings.get("trial_role_id")
-            if trial_role_id:
-                try:
-                    member = interaction.guild.get_member(self.applicant_id)
-                    role = interaction.guild.get_role(int(trial_role_id))
-                    if member and role:
-                        await member.add_roles(role)
-                except Exception as e:
-                    print(f"Error assigning trial role: {e}")
+
+            # Assign At the gates role if configured
+            at_the_gates_role_id = settings.get("at_the_gates_role_id")
+            if at_the_gates_role_id and applicant_member:
+                at_the_gates_role = _resolve_role(interaction.guild, at_the_gates_role_id)
+                await _safe_add_role(applicant_member, at_the_gates_role)
+
+            # Assign additional recommended roles from the rank_role field
+            role_candidates = [part.strip() for part in rank_role_text.split("|") if part.strip()]
+            for role_text in role_candidates:
+                recommended_role = _resolve_role(interaction.guild, role_text)
+                if recommended_role and applicant_member:
+                    await _safe_add_role(applicant_member, recommended_role)
         else:
             await asyncio.to_thread(db.deny_trial, interaction.guild.id, self.trial_id, self.gatekeeper_id)
             await asyncio.to_thread(db.log_action, interaction.guild.id, "trial_denied", self.gatekeeper_id, self.applicant_id, f"Trial denied: Score {self.score.value}, Rank/Role {rank_role_text}")
-            
-            # Remove Aspirant role
-            aspirant_role_id = settings.get("aspirant_role_id")
-            if aspirant_role_id:
-                try:
-                    member = interaction.guild.get_member(self.applicant_id)
-                    role = interaction.guild.get_role(int(aspirant_role_id))
-                    if member and role:
-                        await member.remove_roles(role)
-                except Exception as e:
-                    print(f"Error removing aspirant role: {e}")
         
         # Post report to gatekeeper channel
         gatekeeper_channel_id = settings.get("gatekeeper_channel")
@@ -348,36 +398,57 @@ class TrialResultModal(discord.ui.Modal, title="Trial Result"):
             try:
                 gatekeeper_channel_id = int(gatekeeper_channel_id)
             except (TypeError, ValueError):
-                pass
-            channel = interaction.guild.get_channel(gatekeeper_channel_id)
-            if channel:
-                report_embed = create_trial_embed(
-                    "⚔️ Trial Result",
-                    f"Applicant: <@{self.applicant_id}>\n"
-                    f"Gatekeeper: <@{self.gatekeeper_id}>\n"
-                    f"Result: {'Approved ✅' if result == 'approve' else 'Denied ❌'}\n\n"
-                    f"📊 Performance\n"
-                    f"Score: {self.score.value}/10\n"
-                    f"Rank & Recommended Role: {rank_role_text}\n\n"
-                    f"💪 Strengths and Weaknesses\n{strengths_weaknesses_text or 'None'}\n\n"
-                    f"📝 Notes\n{self.notes.value or 'None'}",
-                    status="approved" if result == "approve" else "denied"
-                )
-                await channel.send(embed=report_embed)
+                gatekeeper_channel_id = None
+            if gatekeeper_channel_id:
+                channel = interaction.guild.get_channel(gatekeeper_channel_id)
+                if channel:
+                    report_embed = create_trial_embed(
+                        "⚔️ Trial Result",
+                        f"**Applicant:** <@{self.applicant_id}>\n"
+                        f"**Gatekeeper:** <@{self.gatekeeper_id}>\n"
+                        f"**Result:** {'Approved ✅' if result == 'approve' else 'Denied ❌'}\n"
+                        f"**Score:** {self.score.value}/10\n"
+                        f"**Rank & Recommended Role:** {rank_role_text}\n\n"
+                        f"**Strengths & Weaknesses**\n{strengths_weaknesses_text or 'None'}\n\n"
+                        f"**Final Notes**\n{self.notes.value or 'None'}",
+                        status="approved" if result == "approve" else "denied"
+                    )
+                    await channel.send(embed=report_embed)
         
-        # Notify applicant
+        # Notify applicant with result and feedback before channel cleanup
         try:
             user = await interaction.guild.fetch_member(self.applicant_id)
-            embed = create_success_embed(
-                f"⚔️ Trial {'Approved' if result == 'approve' else 'Denied'}",
-                f"Score: {self.score.value}/10\nRank & Role: {rank_role_text}\nStrengths/Weaknesses: {strengths_weaknesses_text}"
-            ) if result == "approve" else create_error_embed(
-                "⚔️ Trial Denied",
-                f"Score: {self.score.value}/10\nStrengths/Weaknesses: {strengths_weaknesses_text or 'None'}"
-            )
-            await user.send(embed=embed)
-        except:
-            pass
+        except discord.NotFound:
+            user = None
+
+        if not user:
+            try:
+                user = await interaction.client.fetch_user(self.applicant_id)
+            except discord.NotFound:
+                user = None
+
+        if user:
+            if result == "approve":
+                result_embed = create_success_embed(
+                    "⚔️ Trial Approved",
+                    f"Congratulations! Your trial has been approved.\n\n"
+                    f"**Score:** {self.score.value}/10\n"
+                    f"**Rank & Recommended Role:** {rank_role_text}\n\n"
+                    f"**Strengths & Weaknesses**\n{strengths_weaknesses_text or 'None'}\n\n"
+                    f"**Final Notes**\n{self.notes.value or 'None'}"
+                )
+            else:
+                result_embed = create_error_embed(
+                    "⚔️ Trial Denied",
+                    f"Your trial has been reviewed and denied.\n\n"
+                    f"**Score:** {self.score.value}/10\n"
+                    f"**Strengths & Weaknesses**\n{strengths_weaknesses_text or 'None'}\n\n"
+                    f"**Final Notes**\n{self.notes.value or 'None'}"
+                )
+            try:
+                await user.send(embed=result_embed)
+            except discord.Forbidden:
+                pass
         
         await interaction.followup.send(embed=create_success_embed("Result Submitted", "Trial completed."), ephemeral=True)
         
@@ -392,7 +463,7 @@ class CleanupView(discord.ui.View):
         self.channel = channel
 
     @discord.ui.button(label="✅ Close Now", style=discord.ButtonStyle.success)
-    async def close_now(self, interaction: discord.Interaction):
+    async def close_now(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("Closing channel...", ephemeral=True)
         if self.channel:
             try:
@@ -401,7 +472,7 @@ class CleanupView(discord.ui.View):
                 pass
 
     @discord.ui.button(label="🕒 Keep For 24h", style=discord.ButtonStyle.secondary)
-    async def keep_24h(self, interaction: discord.Interaction):
+    async def keep_24h(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message("Channel will be kept for 24 hours.", ephemeral=True)
         # In 24h, delete, but for now, just acknowledge
 
@@ -410,6 +481,31 @@ class TrialChannelView(discord.ui.View):
         super().__init__(timeout=None)
         self.add_item(TrialReassignButton(trial_id, applicant_id, gatekeeper_id, channel))
         self.add_item(TrialCancelButton(trial_id, applicant_id, gatekeeper_id, channel))
+
+class SubmitResultButton(discord.ui.Button):
+    def __init__(self, trial_id, applicant_id, gatekeeper_id, channel=None):
+        super().__init__(
+            label="Submit Trial Result",
+            style=discord.ButtonStyle.primary,
+            emoji=Emojis.SCROLL
+        )
+        self.trial_id = trial_id
+        self.applicant_id = applicant_id
+        self.gatekeeper_id = gatekeeper_id
+        self.channel = channel
+
+    async def callback(self, interaction: discord.Interaction):
+        if interaction.user.id != self.gatekeeper_id:
+            return await interaction.response.send_message("Only the assigned gatekeeper can submit the result.", ephemeral=True)
+        modal = TrialResultModal(self.trial_id, self.applicant_id, self.gatekeeper_id, self.channel)
+        await interaction.response.send_modal(modal)
+
+class SubmitResultView(discord.ui.View):
+    def __init__(self, trial_id, applicant_id, gatekeeper_id, channel=None):
+        super().__init__(timeout=None)
+        submit_button = SubmitResultButton(trial_id, applicant_id, gatekeeper_id, channel)
+        submit_button.custom_id = f"submit_result_{trial_id}"
+        self.add_item(submit_button)
 
 class TrialReassignButton(discord.ui.Button):
     def __init__(self, trial_id, applicant_id, gatekeeper_id, channel):
@@ -548,8 +644,8 @@ class TrialButtons(discord.ui.View):
             except discord.Forbidden:
                 # Bot lacks permission to assign role, but approval still goes through
                 pass
-            except Exception as e:
-                print(f"Error assigning trial role: {e}")
+            except Exception:
+                pass
         
         embed = create_success_embed(
             "Trial Approved",
@@ -673,6 +769,11 @@ class Trials(commands.Cog):
         
         channel_name = f"trial-{applicant.name}-{gatekeeper.name}"
         channel = await interaction.guild.create_text_channel(channel_name, overwrites=overwrites, category=None)
+
+        aspirant_role_id = settings.get("aspirant_role_id")
+        if aspirant_role_id:
+            aspirant_role = _resolve_role(interaction.guild, aspirant_role_id)
+            await _safe_add_role(applicant, aspirant_role)
         
         # Send application embed
         application_text = trial[3]
@@ -713,40 +814,7 @@ class Trials(commands.Cog):
             color=Colors.INFO
         ))
         
-        # For simplicity, since modals can't be sent in DM easily, perhaps send a button that opens modal, but modals are for interactions.
-        # Actually, to send modal to user, it's tricky. Perhaps send a message with button, and on click, open modal.
-        # But for now, since it's DM, perhaps just send instructions, and have a command for gatekeeper to submit result.
-        
-        # Better: add a command /submit_trial_result trial_id result reason
-        
-        # But to keep it modal, perhaps the gatekeeper uses /conduct_trial or something.
-        
-        # For now, send the modal via DM, but since DM doesn't support modals directly, use a button that the gatekeeper clicks in DM to open modal.
-        
-        # Discord doesn't support modals in DM. So, need to have the gatekeeper use a slash command in the channel.
-        
-        # So, in the channel, send a button for the gatekeeper to submit result.
-        
-        # Add a button in the channel for gatekeeper to submit result.
-        
-        # Create a view with button that opens modal.
-        
-        class SubmitResultButton(discord.ui.Button):
-            def __init__(self, cog, trial_id, applicant_id, channel):
-                super().__init__(label="Submit Trial Result", style=discord.ButtonStyle.primary, emoji=Emojis.SCROLL)
-                self.cog = cog
-                self.trial_id = trial_id
-                self.applicant_id = applicant_id
-                self.channel = channel
-            
-            async def callback(self, interaction: discord.Interaction):
-                if interaction.user.id != gatekeeper.id:
-                    return await interaction.response.send_message("Only the assigned gatekeeper can submit the result.", ephemeral=True)
-                modal = TrialResultModal(self.trial_id, self.applicant_id, gatekeeper.id, self.channel)
-                await interaction.response.send_modal(modal)
-        
-        view = discord.ui.View()
-        view.add_item(SubmitResultButton(self, trial_id, applicant.id, channel))
+        view = SubmitResultView(trial_id, applicant.id, gatekeeper.id, channel)
         await channel.send(embed=create_info_embed("Trial Actions", "Gatekeeper, click the button below to submit the trial result.", color=Colors.INFO), view=view)
         
         # Assign the gatekeeper and update trial state
@@ -829,12 +897,30 @@ class Trials(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    async def deletetrial_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        trials = await asyncio.to_thread(db.get_all_trials, interaction.guild.id)
+        active_trials = [t for t in trials if t[4] in ("pending", "in_progress")]
+
+        options = []
+        for trial in active_trials:
+            user_id = trial[2]
+            member = interaction.guild.get_member(int(user_id)) if interaction.guild else None
+            label_name = member.display_name if member else f"User {user_id}"
+            label = f"{label_name} - {trial['trial_id']}"
+            if current.lower() in label.lower():
+                options.append(app_commands.Choice(name=label, value=trial['trial_id']))
+                if len(options) >= 25:
+                    break
+
+        return options
+
     @app_commands.command(
         name="deletetrial",
-        description="Delete a pending or active trial for a member"
+        description="Delete a pending or active trial by trial ID"
     )
-    @app_commands.describe(user="The trial applicant to delete")
-    async def deletetrial(self, interaction: discord.Interaction, user: discord.Member):
+    @app_commands.autocomplete(trial_id=deletetrial_autocomplete)
+    @app_commands.describe(trial_id="The trial ID to delete")
+    async def deletetrial(self, interaction: discord.Interaction, trial_id: str):
         """Delete a pending/active trial and remove its channel if present."""
         config = get_config()
         reviewer_roles = config.get_trial_reviewers(interaction.guild.id)
@@ -847,32 +933,40 @@ class Trials(commands.Cog):
             )
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        trials = await asyncio.to_thread(db.get_user_trials, interaction.guild.id, user.id)
-        active_trials = [t for t in trials if t[4] in ("pending", "in_progress")]
-
-        if not active_trials:
+        trial = await asyncio.to_thread(db.get_trial, interaction.guild.id, trial_id)
+        if not trial or trial[4] not in ("pending", "in_progress"):
             embed = create_error_embed(
-                "No Active Trial Found",
-                f"{user.mention} has no pending or active trial to delete."
+                "Invalid Trial",
+                "That trial ID is not pending or in progress. Please select a valid active trial."
             )
             return await interaction.response.send_message(embed=embed, ephemeral=True)
 
+        user_id = trial[2]
+        applicant = interaction.guild.get_member(int(user_id)) if interaction.guild else None
         await asyncio.to_thread(
             db._execute,
-            "DELETE FROM trial_candidates WHERE guild_id = ? AND user_id = ? AND status IN (?, ?)",
-            (str(interaction.guild.id), str(user.id), "pending", "in_progress")
+            "DELETE FROM trial_candidates WHERE guild_id = ? AND trial_id = ?",
+            (str(interaction.guild.id), trial_id)
         )
 
         deleted_channels = []
-        normalized_name = user.name.lower().replace(" ", "-")
+        normalized_names = set()
+        if applicant:
+            normalized_names.add(applicant.name.lower().replace(" ", "-"))
+            normalized_names.add(applicant.display_name.lower().replace(" ", "-"))
+        else:
+            normalized_names.add(str(user_id))
+
         for channel in interaction.guild.text_channels:
-            if channel.name.startswith(f"trial-{normalized_name}") or normalized_name in channel.name:
+            channel_name = channel.name.lower()
+            if channel_name.startswith("trial-") and any(name in channel_name for name in normalized_names):
                 try:
-                    await channel.delete(reason=f"Trial deleted by {interaction.user} for {user}")
+                    await channel.delete(reason=f"Trial deleted by {interaction.user} for trial {trial_id}")
                     deleted_channels.append(channel.mention)
                 except Exception:
                     pass
 
+        target_mention = applicant.mention if applicant else f"User {user_id}"
         channel_message = (
             f"Deleted channel(s): {', '.join(deleted_channels)}"
             if deleted_channels else
@@ -881,7 +975,7 @@ class Trials(commands.Cog):
 
         embed = create_success_embed(
             "Trial Deleted",
-            f"Removed pending/active trial for {user.mention}.\n{channel_message}"
+            f"Removed active trial {trial_id} for {target_mention}.\n{channel_message}"
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

@@ -69,6 +69,7 @@ def init_db():
                 name TEXT NOT NULL,
                 format TEXT NOT NULL,
                 status TEXT NOT NULL,
+                visibility TEXT NOT NULL,
                 created_by TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 started_at INTEGER,
@@ -105,6 +106,23 @@ def init_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tourney_bans (
+                guild_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                banned_by TEXT NOT NULL,
+                banned_at INTEGER NOT NULL,
+                reason TEXT,
+                PRIMARY KEY(guild_id, user_id)
+            )
+            """
+        )
+        existing_columns = [row["name"] for row in conn.execute("PRAGMA table_info(tournaments)")]
+        if "visibility" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE tournaments ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'"
+            )
         # Events
         conn.execute(
             """
@@ -427,13 +445,81 @@ def get_all_trials(guild_id):
 
 
 # Tournaments
-def create_tournament(guild_id, name, format_type, created_by):
+def create_tournament(guild_id, name, format_type, visibility, created_by):
     tournament_id = str(uuid.uuid4())
     _execute(
-        "INSERT INTO tournaments (guild_id, tournament_id, name, format, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (str(guild_id), tournament_id, name, format_type, "registration", str(created_by), int(time.time())),
+        "INSERT INTO tournaments (guild_id, tournament_id, name, format, status, visibility, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (str(guild_id), tournament_id, name, format_type, "registration", visibility, str(created_by), int(time.time())),
     )
     return tournament_id
+
+
+def delete_all_tournaments(guild_id):
+    _execute(
+        "DELETE FROM tournament_matches WHERE guild_id = ?",
+        (str(guild_id),),
+    )
+    _execute(
+        "DELETE FROM tournament_teams WHERE guild_id = ?",
+        (str(guild_id),),
+    )
+    _execute(
+        "DELETE FROM tournaments WHERE guild_id = ?",
+        (str(guild_id),),
+    )
+
+
+def delete_all_events(guild_id):
+    _execute(
+        "DELETE FROM event_rsvps WHERE guild_id = ?",
+        (str(guild_id),),
+    )
+    _execute(
+        "DELETE FROM events WHERE guild_id = ?",
+        (str(guild_id),),
+    )
+
+
+def ban_tournament_user(guild_id, user_id, banned_by, reason=""):
+    _execute(
+        "INSERT OR REPLACE INTO tourney_bans (guild_id, user_id, banned_by, banned_at, reason) VALUES (?, ?, ?, ?, ?)",
+        (str(guild_id), str(user_id), str(banned_by), int(time.time()), reason),
+    )
+
+
+def unban_tournament_user(guild_id, user_id):
+    _execute(
+        "DELETE FROM tourney_bans WHERE guild_id = ? AND user_id = ?",
+        (str(guild_id), str(user_id)),
+    )
+
+
+def is_tournament_banned(guild_id, user_id):
+    row = _fetchone(
+        "SELECT 1 FROM tourney_bans WHERE guild_id = ? AND user_id = ?",
+        (str(guild_id), str(user_id)),
+    )
+    return bool(row)
+
+
+def get_tournament_bans(guild_id):
+    return _fetchall(
+        "SELECT * FROM tourney_bans WHERE guild_id = ? ORDER BY banned_at DESC",
+        (str(guild_id),),
+    )
+
+
+def remove_tournament_participant(guild_id, tournament_id, user_id):
+    teams = get_tournament_teams(guild_id, tournament_id)
+    for team in teams:
+        members = json.loads(team[4])
+        if int(user_id) in members or str(user_id) in members:
+            _execute(
+                "DELETE FROM tournament_teams WHERE guild_id = ? AND tournament_id = ? AND team_id = ?",
+                (str(guild_id), tournament_id, team[2]),
+            )
+            return team
+    return None
 
 
 def start_tournament(guild_id, tournament_id):
