@@ -1,3 +1,4 @@
+import asyncio
 import discord
 import os
 from discord.ext import commands
@@ -22,7 +23,7 @@ intents.members = True
 
 async def get_prefix(bot, message):
     if message.guild:
-        prefix = db.get_setting(message.guild.id, "prefix", DEFAULT_PREFIX)
+        prefix = await asyncio.to_thread(db.get_setting, message.guild.id, "prefix", DEFAULT_PREFIX)
     else:
         prefix = DEFAULT_PREFIX
     return commands.when_mentioned_or(prefix)(bot, message)
@@ -70,6 +71,35 @@ class RunekeeperBot(commands.Bot):
                 print(f"✅ Synced {len(synced)} slash commands globally")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
+
+        await self.register_persistent_views()
+
+    async def register_persistent_views(self):
+        try:
+            from cogs.trials import TrialQueueView
+
+            pending_views = await asyncio.to_thread(
+                db._fetchall,
+                "SELECT guild_id, trial_id, user_id, message_id FROM trial_candidates WHERE status = 'pending' AND message_id IS NOT NULL"
+            )
+            restored = 0
+            for row in pending_views:
+                try:
+                    guild_id = int(row[0])
+                    trial_id = row[1]
+                    user_id = int(row[2])
+                    message_id = int(row[3])
+                except (TypeError, ValueError):
+                    continue
+
+                view = TrialQueueView(trial_id, user_id, self)
+                self.add_view(view, message_id=message_id)
+                restored += 1
+
+            if restored:
+                print(f"✅ Restored {restored} persistent trial queue views")
+        except Exception as e:
+            print(f"⚠️ Failed to register persistent trial views: {e}")
 
 bot = RunekeeperBot(
     command_prefix=get_prefix,

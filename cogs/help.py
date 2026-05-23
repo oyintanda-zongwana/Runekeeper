@@ -87,6 +87,11 @@ class Help(commands.Cog):
         embed.set_footer(text="Use the dropdown to navigate")
         return embed
 
+    def _count_cog_commands(self, cog) -> int:
+        prefix_commands = [cmd for cmd in cog.get_commands() if not cmd.hidden]
+        app_commands_list = [cmd for cmd in cog.walk_app_commands() if not getattr(cmd, 'hidden', False) and not isinstance(cmd, app_commands.Group)]
+        return len(prefix_commands) + len(app_commands_list)
+
     def _format_command_entry(self, cmd, prefix: str) -> str:
         if isinstance(cmd, app_commands.Command):
             if isinstance(cmd, app_commands.Group):
@@ -104,7 +109,8 @@ class Help(commands.Cog):
         if not cog:
             return None
 
-        embed = self._base_embed(f"📁 {cog_name} Commands", discord.Color.blue())
+        friendly_name = self.FRIENDLY_CATEGORIES.get(cog_name, cog_name)
+        embed = self._base_embed(f"📁 {friendly_name} Commands", discord.Color.blue())
         embed.set_author(name="Command Details", icon_url=self.bot.user.display_avatar.url)
 
         command_lines = []
@@ -155,8 +161,14 @@ class Help(commands.Cog):
 
             options = [discord.SelectOption(label="🏠 Home", value="Home", description="Main help page")]
             for name, cog in bot.cogs.items():
-                if cog.get_commands():
-                    options.append(discord.SelectOption(label=name, value=name, description=f"Browse {name} commands"))
+                command_count = parent_view.cog._count_cog_commands(cog)
+                if command_count > 0:
+                    friendly_name = parent_view.cog.FRIENDLY_CATEGORIES.get(name, name)
+                    options.append(discord.SelectOption(
+                        label=friendly_name,
+                        value=name,
+                        description=f"Browse {friendly_name} commands"
+                    ))
             super().__init__(placeholder="Navigate categories...", min_values=1, max_values=1, options=options)
 
         async def callback(self, interaction: discord.Interaction):
