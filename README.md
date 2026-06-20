@@ -1,9 +1,9 @@
 # Runekeeper (Discord Bot)
 
-The Runekeeper Discord bot provides economy, levels, fun commands, and Brawlhalla handle bindings. This branch scaffolds the bot with slash commands and a small SQLite-backed database.
+The Runekeeper Discord bot provides economy, levels, fun commands, and a range of mini-games. This branch extends the earlier scaffold with admin utilities and minigames.
 
 Quickstart
-1. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` (and `BRAWLHALLA_API_KEY` if you want Brawlhalla features).
+1. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` (and other optional vars).
 2. Create a virtual environment and install requirements:
    python -m venv .venv
    source .venv/bin/activate
@@ -11,19 +11,16 @@ Quickstart
 3. Run the bot:
    python -m bot.core
 
-Features implemented in this branch
-- Help command (slash /help) that lists available commands.
-- Economy: /balance, /daily, /transfer
-- Levels: XP per message, /profile
-- Fun: /coinflip, /8ball, /rps
-- Brawlhalla: /bind_brawlhalla, /brawlhalla_profile (stores handles, optional API integration)
+New features added in this update
+- Admin cog: `/list_cogs`, `/reload_cog <cog>`, `/sync_commands [guild_id]` for on-demand reload/sync by admins or bot owner.
+- Minigames cog: `/guess_start`, `/guess_try`, `/scramble`, `/trivia` — small, fun games usable in-channel.
+- Expanded Fun cog (roasts, jokes, quotes, songs) and Economy cog (shop, gamble, leaderboard).
 
-Development notes
-- Uses SQLAlchemy with a default sqlite:///runekeeper.db. You can set DATABASE_URL to a Postgres URL for production.
-- Slash commands are registered on startup (bot.tree.sync()). You may need to invite the bot with applications.commands and proper permissions.
+Why your commands might not appear or work
+1. The running bot process is not using the updated code. Pushing to GitHub doesn't change a running process — you must restart or hot-reload cogs in the running instance.
+2. Cogs may fail to load due to errors on startup; check logs for exceptions like import errors or missing dependencies.
+3. Slash commands register globally (can take up to 1 hour to show). For immediate testing, sync commands to a dev guild using `/sync_commands <guild_id>`.
+4. Required environment variables (DISCORD_TOKEN) or dependencies might be missing; check startup logs.
+5. DB not initialized — the code now runs init_db() in on_ready to create the SQLite schema if missing.
 
-What I will do next
-- Add more economy features (shop, leaderboards), more fun/entertainment commands, and Brawlhalla match-tracing once you provide an API key.
-- Add tests and CI configuration.
-
-If you want me to proceed further, say "continue" and provide (optionally) BRAWLHALLA_API_KEY and any preferences (currency name, per-server/global economy, library choice).
+If you want me to continue adding more mini-games (blackjack, hangman, word chains), leaderboards for minigames, or integrate external APIs for memes/music, say which ones and I will implement them next.

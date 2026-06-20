@@ -1,11 +1,18 @@
-import os
-import asyncio
-import logging
-from dotenv import load_dotenv
 import discord
+from discord import app_commands
 from discord.ext import commands
+from bot.db import init_db
+import logging
 
-load_dotenv()
+load_dotenv = None
+try:
+    from dotenv import load_dotenv as _lod
+    load_dotenv = _lod
+except Exception:
+    pass
+
+if load_dotenv:
+    load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("runekeeper")
@@ -23,6 +30,12 @@ COG_PATH = "bot.cogs"
 @bot.event
 async def on_ready():
     logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    # Initialize DB if needed
+    try:
+        init_db()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.exception(f"Database initialization failed: {e}")
     # Sync app commands (slash commands)
     try:
         await bot.tree.sync()
@@ -37,7 +50,8 @@ async def load_cogs():
         "bot.cogs.economy",
         "bot.cogs.levels",
         "bot.cogs.fun",
-        "bot.cogs.brawlhalla",
+        "bot.cogs.admin",
+        "bot.cogs.minigames",
     ]
     for cog in cogs:
         try:
@@ -46,12 +60,18 @@ async def load_cogs():
         except Exception as e:
             logger.exception(f"Failed to load cog {cog}: {e}")
 
+
 def main():
-    token = os.getenv("DISCORD_TOKEN")
+    token = None
+    try:
+        token = __import__('os').environ.get("DISCORD_TOKEN")
+    except Exception:
+        pass
     if not token:
         logger.error("DISCORD_TOKEN is not set in the environment")
         return
 
+    import asyncio
     asyncio.run(_run(token))
 
 async def _run(token: str):
