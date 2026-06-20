@@ -1,26 +1,42 @@
-# Runekeeper (Discord Bot)
+# Runekeeper - Quick Start (Windows) for enhancement/discord-features
 
-The Runekeeper Discord bot provides economy, levels, fun commands, and a range of mini-games. This branch extends the earlier scaffold with admin utilities and minigames.
+This branch provides the MVP feature set (music via YouTube, levels, invite tracking, Brawlhalla polling, moderation, and basic games). Below are the minimal files and scripts added to help hosts run the bot on a personal Windows PC.
 
-Quickstart
-1. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` (and other optional vars).
-2. Create a virtual environment and install requirements:
-   python -m venv .venv
-   source .venv/bin/activate
+Files added
+- scripts/setup_runekeeper.ps1  — PowerShell installer that installs tools (via winget), clones repo, creates venv, installs deps, creates .env, and starts the bot in a new window.
+- .env.example                  — example environment file to copy to .env and edit
+- runekeeper_start.bat          — simple Windows start script
+- deploy/runekeeper.service     — example systemd unit (for Linux VPS users)
+- Dockerfile & docker-compose.yml — optional containerized run (advanced)
+
+Minimum required on the host
+- Python 3.10+ (on PATH)
+- Git
+- ffmpeg on PATH (for voice/music)
+- Virtualenv (.venv in repo)
+- .env with DISCORD_TOKEN set
+
+Quick Windows instructions (host copy/paste)
+1) Open PowerShell as Administrator and run (in repository folder):
+   git fetch origin
+   git checkout enhancement/discord-features
+   git pull origin enhancement/discord-features
+
+2) If you haven't run the installer script, you can run it now (as Admin):
+   .\scripts\setup_runekeeper.ps1
+
+3) Or manually ensure venv and deps and start the bot:
+   taskkill /IM python.exe /F
+   .\.venv\Scripts\Activate.ps1
    pip install -r requirements.txt
-3. Run the bot:
-   python -m bot.core
+   pip install yt-dlp PyNaCl
+   python -m bot.core > runekeeper_start.log 2>&1
+   Get-Content .\runekeeper_start.log -Tail 200
 
-New features added in this update
-- Admin cog: `/list_cogs`, `/reload_cog <cog>`, `/sync_commands [guild_id]` for on-demand reload/sync by admins or bot owner.
-- Minigames cog: `/guess_start`, `/guess_try`, `/scramble`, `/trivia` — small, fun games usable in-channel.
-- Expanded Fun cog (roasts, jokes, quotes, songs) and Economy cog (shop, gamble, leaderboard).
+After host restarts the bot
+- In Discord (server admin), run: /sync_commands <GUILD_ID>
+  (Guild sync registers slash commands immediately)
 
-Why your commands might not appear or work
-1. The running bot process is not using the updated code. Pushing to GitHub doesn't change a running process — you must restart or hot-reload cogs in the running instance.
-2. Cogs may fail to load due to errors on startup; check logs for exceptions like import errors or missing dependencies.
-3. Slash commands register globally (can take up to 1 hour to show). For immediate testing, sync commands to a dev guild using `/sync_commands <guild_id>`.
-4. Required environment variables (DISCORD_TOKEN) or dependencies might be missing; check startup logs.
-5. DB not initialized — the code now runs init_db() in on_ready to create the SQLite schema if missing.
+If commands still don't appear
+- Paste the last 200 lines from runekeeper_start.log here and the bot ID (Right-click bot → Copy ID) and I will diagnose.
 
-If you want me to continue adding more mini-games (blackjack, hangman, word chains), leaderboards for minigames, or integrate external APIs for memes/music, say which ones and I will implement them next.
