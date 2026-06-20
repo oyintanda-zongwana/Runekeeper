@@ -1,0 +1,14 @@
+[Unit]
+Description=Runekeeper Discord Bot
+After=network.target
+
+[Service]
+User=runekeeper
+WorkingDirectory=/opt/runekeeper
+EnvironmentFile=/opt/runekeeper/.env
+ExecStart=/opt/runekeeper/.venv/bin/python -m bot.core
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
