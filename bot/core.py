@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
+from bot.db import init_db
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +25,13 @@ COG_PATH = "bot.cogs"
 @bot.event
 async def on_ready():
     logger.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    # Initialize DB if needed
+    try:
+        from bot.db import init_db
+        init_db()
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.exception(f"Database initialization failed: {e}")
     # Sync app commands (slash commands)
     try:
         await bot.tree.sync()
@@ -37,6 +46,8 @@ async def load_cogs():
         "bot.cogs.economy",
         "bot.cogs.levels",
         "bot.cogs.fun",
+        "bot.cogs.admin",
+        "bot.cogs.minigames",
         "bot.cogs.brawlhalla",
     ]
     for cog in cogs:
@@ -46,8 +57,13 @@ async def load_cogs():
         except Exception as e:
             logger.exception(f"Failed to load cog {cog}: {e}")
 
+
 def main():
-    token = os.getenv("DISCORD_TOKEN")
+    token = None
+    try:
+        token = __import__('os').environ.get("DISCORD_TOKEN")
+    except Exception:
+        pass
     if not token:
         logger.error("DISCORD_TOKEN is not set in the environment")
         return
@@ -55,6 +71,7 @@ def main():
     asyncio.run(_run(token))
 
 async def _run(token: str):
+    init_db()
     await load_cogs()
     await bot.start(token)
 
