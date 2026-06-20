@@ -1,15 +1,15 @@
+# RUNEKEEPER
 
-# OT's BOT
-
-This bot is made for OT. It is a multipurpose bot with moderation, role customization, and server settings.
-
-
+RuneKeeper is a multipurpose Discord bot built for the Hall of the Slain community.
+It provides moderation tools, role management, server utilities, guild settings, and event systems.
 
 
-## Setup
+## Quick Start
 
 1. Copy `config.example.json` to `config.json`.
-2. Set `DISCORD_TOKEN` in your environment or add it to `config.json`.
+2. Set your bot token:
+   - in `config.json` as the `token` field, or
+   - with the `DISCORD_TOKEN` environment variable.
 3. Install dependencies:
    ```bash
    pip install -r requirements.txt
@@ -19,221 +19,142 @@ This bot is made for OT. It is a multipurpose bot with moderation, role customiz
    python main.py
    ```
 
-## New features
+## Configuration
 
-- Dynamic per-guild prefix support (`setprefix`).
-- Moderation log channel support (`setlog`).
-- Welcome and goodbye message channels (`setwelcome`, `setgoodbye`).
-- SQLite persistence for warns, mutes, staff, jail, and settings.
-- Secure token loading from environment variables.
+The bot is configured through `config.json`.
+Key settings include:
+- `token`: Discord bot token
+- `prefix`: default command prefix
+- `owner_id`, `application_id`, `guild_id`: Discord IDs used by the bot
+- `guilds`: per-guild settings for roles, channels, reviewers, and enabled features
+
+Update the IDs and guild settings to match your server before running the bot.
+
+## Main Features
+
+- Command prefix support per guild
+- Moderation commands: warn, mute, kick, ban, jail, purge, slowmode, lock/unlock
+- Role management: create, delete, assign, remove, rename, recolor, move, hoist, mentionable
+- Server utilities: info, avatar, banner, members, boosts, channels, roles count
+- Trial, tournament, event, and appeal systems
+- Announcement and logging tools
+- SQLite persistence for warns, mutes, staff roles, jail state, and settings
+
+## Available Commands
+
+### General
+- `help` / `help <command>`: view command categories and syntax
+- `serverinfo` / `si`: show guild information
+- `userinfo` / `ui`: show user information
+- `avatar` / `av`: show a user's avatar
+- `banner`: show a user's banner
+- `servericon`: show the server icon
+- `membercount` / `mc`: show the number of members
+- `boosts`: show server boost status
+- `rolesnumber`: show total roles count
+- `channels`: show channel counts
+- `vcs`: show voice channel statistics
+
+### Moderation (Mod+)
+- `snipe` / `sn` / `s`: show the last deleted message
+- `editsnipe` / `es`: show the last edited message
+- `warn` / `w`: warn a user
+- `warnings` / `ws`: view a user's warnings
+- `clearwarns` / `cw`: clear a user's warnings
+- `mute` / `m`: mute a user for a duration
+- `unmute` / `um`: unmute a user
+- `nickname` / `nick`: change or reset a user's nickname
+- `say` / `echo`: make the bot send a message
+
+### Moderation (Admin+)
+- `purge` / `clear` / `clean` / `prune`: bulk delete messages
+- `slowmode` / `sm`: set channel slowmode
+- `lock`: lock a channel for @everyone
+- `unlock`: unlock a channel for @everyone
+- `kick` / `k`: kick a user
+- `ban` / `b`: ban a user
+- `jail` / `j`: jail a user in a private cell channel
+- `unjail` / `uj`: release a jailed user
+
+### Staff Management
+- `addmod` / `am`: promote a user to Mod staff
+- `removemod` / `rm`: demote Mod staff
+- `addadmin` / `aa`: promote a user to Admin staff
+- `removeadmin` / `ra`: demote Admin staff
+- `addowner` / `ao`: promote a user to Owner staff
+- `removeowner` / `ro`: demote Owner staff
+- `staffs` / `staff`: list configured staff members
+
+### Roles (Public)
+- `roleinfo` / `ri`: show details for a role
+- `rolelist` / `roles` / `listroles`: list server roles by position
+
+### Roles (Admin+)
+- `createrole` / `cr` / `rcreate`: create a new role
+- `deleterole` / `dr` / `rdelete`: delete a role
+- `giverole` / `gr` / `give`: give a role to a member
+- `removerole` / `rr` / `take`: remove a role from a member
+- `renamerole` / `rn` / `rrename`: rename a role
+- `colorrole` / `rc` / `rcolor`: change a role color
+- `roleposition` / `rp` / `move`: move a role position
+- `rolehoist` / `rh` / `hoist`: toggle role hoist
+- `rolementionable` / `rmen` / `mentionable`: toggle @mentionability
+
+### Server Settings
+- `prefix`: show the current command prefix
+- `setprefix`: set the guild command prefix
+- `setlog`: set the moderation log channel
+- `setwelcome`: set the welcome message channel
+- `setgoodbye`: set the goodbye message channel
+
+### Slash / App Commands
+- `help` (slash): browse available commands
+- `setlog`, `setwelcome`, `setgoodbye`
+- `serverinfo`, `userinfo`, `avatar`, `banner`, `servericon`, `membercount`, `boosts`, `rolesnumber`, `channels`, `vcs`
+- `createrole`, `deleterole`, `giverole`, `removerole`, `renamerole`, `rolecolor`, `roleposition`, `rolehoist`, `rolementionable`, `roleinfo`, `rolelist`
+- `config`: manage guild configuration
+- `configdiag`: check configuration health
+- `announce`, `celebratevictory`, `themedmessage`
+- `viewlogs`, `logaction`
+- `checkpermissions`, `checkroles`, `checkchannels`, `adminstatus`
+- `hallinfo`, `members`
+- `applyfortrial`, `assign_gatekeeper`, `trialstatus`, `viewtrials`, `deletetrial`, `trialqueue`
+- `tourneycreate`, `deletealltourneys`, `managetourney`, `tourneyjoin`, `tourneystart`, `tourneyresult`, `tourneyleaderboard`, `tourneys`, `tourneylist`, `tourneyview`
+- `eventcreate`, `deleteallevents`, `eventrsvp`, `eventlist`, `events`, `eventview`, `eventrsvplist`
+- `appeal`, `appealstatus`, `viewappeals`
+
+### Systems and Guild Features
+- Trial applications and approvals
+- Tournament creation, joining, results, and leaderboards
+- Event creation, RSVPs, reminders, and event browsing
+- Appeals submission and review workflow
+- Hall info and membership display
+- Action logging and announcement tools
+
+## Repository Structure
+
+- `main.py` — bot startup
+- `config.py` — configuration loader
+- `config.example.json` — sample settings
+- `cogs/` — command modules and event handlers
+- `utils/` — helpers and database support
+- `requirements.txt` — dependencies
+
+## Contributor Notes
+
+- Use `help` in Discord to browse available commands and syntax.
+- Inspect `cogs/` to learn implementation and permissions.
+- Keep `config.example.json` as a template; use `config.json` locally.
+- When adding commands, add them to the appropriate cog and preserve existing permission logic.
 
 ## Authors
 
 - [@Asher-09](https://www.github.com/Asher-09)
-
-
-
-![Logo](https://imgs.search.brave.com/qWkdY3bHpnBLpakAVN3TiKqPE_WTtePcKuqtVuDMVRw/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly93d3cu/d2Vid2lzZS5pZS93/cC1jb250ZW50L3Vw/bG9hZHMvMjAxOS8x/MS9JTUcwMDEuanBn)
-
-
-## Features
-
-# - Help System -
-
- **help** - Opens an interactive dropdown help menu with all command categories and server info.
-
-   | Syntax: !help |
-
- **help <command>** - Shows syntax and example for a specific command.
-
-   | Syntax: !help snipe |
-
-# - Moderation - (Mod+) [Mod, Admin, Owner, Bot Owner]
-
- **snipe (sn, s)** - Show last deleted message in the channel.
-
-   | Syntax: !snipe or !snipe #general |
-
- **editsnipe (es)** - Show last edited message.
-
-   | Syntax: !editsnipe |
-
- **warn (w)** - Warn a user.
-
-   | Syntax: !warn @user reason |
-
- **warnings (ws)** - View warnings of a user.
-
-   | Syntax: !warnings @user |
-
- **mute (m)** - Mute a user for a duration (e.g., 10m, 1h, 2d).
-
-   | Syntax: !mute @user 30m spamming |
-
- **unmute (um)** - Manually unmute a user.
-
- 
-   | Syntax: !unmute @user |
- 
- **nickname (nick)** - Change or reset a member's nickname.
- 
-   | Syntax: !nick @user NewName or !nick @user (to reset) |
- 
- **clearwarns (cw)** - Clear all warnings of a user (Mod+? Admin? actual: 
- admin+).
- 
-   | Syntax: !clearwarns @user |
-
-# - Moderation (Admin+) [Admin+ only]
-
- **purge (clear, clean, prune)** - Delete messages up to 500. Optional mode: bots, embeds, mentions, attachments, text, user.
-
-   | Syntax: !purge 20, !purge bots 10, !purge user 15 @user |
-
- **slowmode (sm)** - Set channel slowmode (0 = off).
-
-   | Syntax: !slowmode 5 |
-
- **lock** - Prevent @everyone from sending messages in a channel.
-
-   | Syntax: !lock #general |
-
- **unlock** - Allow @everyone to send messages again.
-
-   | Syntax: !unlock #general |
-
- **kick (k)** - Kick a member from the server.
-
-   | Syntax: !kick @user reason |
-
- **ban (b)** - Ban a member from the server.
-
-   | Syntax: !ban @user reason |
-
- **jail (j)** - Jail a user (creates a private cell channel).
-
-   | Syntax: !jail @user reason |
-
- **unjail (uj)** - Unjail a user and delete the cell.
-
-   | Syntax: !unjail @user |
-
- **say (echo)** - Make the bot speak in a channel.
-
-   | Syntax: !say #general Hello |
-
- **addmod (am)** - Promote a user to staff level "Mod".
-
-   | Syntax: !addmod @user |
-
- **removemod (rm)** - Demote from Mod.
-
-   | Syntax: !removemod @user |
-
-
-# - Moderation (Owner+) [Owner+ only]
-
-
- **addadmin (aa)** - Promote a user to staff level "Admin".
-
-   | Syntax: !addadmin @user |
-
- **removeadmin (ra)** - Demote from Admin.
-
-   | Syntax: !removeadmin @user |
-
-
-
-# - Moderation (Bot Owner) [Bot Owner only]
-
- **addowner (ao)** - Promote a user to staff level "Owner".
-
-   | Syntax: !addowner @user |
-
- **removeowner (ro)** - Demote from Owner.
-
-   | Syntax: !removeowner @user |
-
-
-# - Roles (Public) -
-
-
- **roleinfo (ri)** - Show details about a role (color, position, members).
-
-   | Syntax: !roleinfo @Moderator |
-
- **rolelist (roles, listroles)** - List all server roles ranked by position 
- (1 = highest).
- 
-   | Syntax: !roles |
-
-
-
-# - Roles (Admin+) -
-
-
-
- **createrole (cr)** - Create a new role.
-
-   | Syntax: !createrole VIP |
-
- **deleterole (dr)** - Delete a role.
-
-   | Syntax: !deleterole @VIP |
-
- **giverole (gr)** - Assign a role to a member.
-
-   | Syntax: !giverole @user @VIP |
-
- **removerole (rr)** - Remove a role from a member.
-
-   | Syntax: !removerole @user @VIP |
-
- **renamerole (rnrole)** - Rename a role.
-
-   | Syntax: !renamerole @VIP Important |
-
- **colorrole (rolecolor, crcolor)** - Change a role's color (hex, e.g., 
- #FF0000).
- 
-   | Syntax: !colorrole @VIP #FF0000 |
- 
- **roleposition (rpos, move)** - Move a role to a specific position (1 = top).
- 
-   | Syntax: !roleposition @Mod 3 |
- 
- **rolehoist (hoist)** - Toggle role's separate display in member list.
- 
-   | Syntax: !rolehoist @VIP true |
- 
- **rolementionable (mentionable)** - Toggle if the role can be @mentioned.
- 
-   | Syntax: !rolementionable @VIP true |
-
-
-# - Server Utilities (Public) -
-
-
-
- **serverinfo (si)** - Show server name, owner, members, channels, creation date.
-
-   | Syntax: !serverinfo |
-
- **userinfo (ui)** - Show member info (join date, roles, account creation).
-
-   | Syntax: !userinfo @user or !ui |
-
- **avatar (av)** - Display a user's full-size avatar.
-
-   | Syntax: !avatar @user |
-
- **banner** - Display a user's banner (if any).
-
-   | Syntax: !banner @user |
-
+- [@oyintanda-zongwana](https://github.com/oyintanda-zongwana)
 
 ## Tech Stack
 
-**Languages :** Python
-
-**API :** Discord.py , OS , JSON
+- Python
+- Discord.py
+- OS
+- JSON
