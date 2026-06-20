@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
+from bot.db import init_db
+
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +57,7 @@ def main():
     asyncio.run(_run(token))
 
 async def _run(token: str):
+    init_db()
     await load_cogs()
     await bot.start(token)
 

@@ -3,13 +3,15 @@
 The Runekeeper Discord bot provides economy, levels, fun commands, and Brawlhalla handle bindings. This branch scaffolds the bot with slash commands and a small SQLite-backed database.
 
 Quickstart
-1. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` (and `BRAWLHALLA_API_KEY` if you want Brawlhalla features).
+1. Copy `.env.example` to `.env` and set `DISCORD_TOKEN` (and `BRAWLHALLA_API_KEY`, `BRAWLHALLA_API_ENDPOINT`, `BRAWLHALLA_POLL_INTERVAL` if you want Brawlhalla integration).
 2. Create a virtual environment and install requirements:
    python -m venv .venv
    source .venv/bin/activate
    pip install -r requirements.txt
 3. Run the bot:
-   python -m bot.core
+   python main.py
+
+Note: install `ffmpeg` and add it to your PATH if you want music playback support.
 
 Features implemented in this branch
 - Help command (slash /help) that lists available commands.
